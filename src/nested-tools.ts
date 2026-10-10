@@ -164,15 +164,15 @@ export function createNestedSubagentTools(context: NestedToolContext): ToolDefin
       "Launch a child-safe nested subagent for bounded delegated work. " +
       "Only use agent types allowed by this parent agent; nesting is depth-limited.",
     parameters: Type.Object({
-      prompt: Type.String({ description: "Self-contained task for the nested agent." }),
-      description: Type.String({ description: "Short 3-5 word task description." }),
+      prompt: Type.String(),
+      description: Type.String({ description: "Short 3-5 word summary (shown in UI)." }),
       subagent_type: Type.String({ description: `Allowed nested agent type. Available: ${availableIn(loadRegistry()).join(", ") || "none"}.` }),
-      model: Type.Optional(Type.String({ description: "Optional provider/model override." })),
-      thinking: Type.Optional(Type.String({ description: "Optional thinking level." })),
+      model: Type.Optional(Type.String()),
+      thinking: Type.Optional(Type.String()),
       max_turns: Type.Optional(Type.Number({ minimum: 1 })),
       run_in_background: Type.Optional(
         Type.Boolean({
-          description: "Defaults to false for nested spawns — the call blocks and returns the child's result inline. Set true only for work you will collect later with get_subagent_result; a detached child is stopped when you finish.",
+          description: "Defaults to false — the call blocks and returns the child's result inline. Set true only for work you will collect later; a detached child is stopped when you finish.",
         }),
       ),
       resume: Type.Optional(Type.String({ description: "Resume a nested agent owned by this parent." })),

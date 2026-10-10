@@ -657,6 +657,18 @@ describe("SubagentWorkflow tool — script vs scriptPath vs name", () => {
 
   const workflowCtx = () => ctx({ cwd: hermetic.dir });
 
+  it("declares exactly the five parameters it reads", () => {
+    const props = Object.keys(tools.get("SubagentWorkflow").parameters?.properties ?? {});
+    expect(props.sort()).toEqual(["args", "name", "resumeFromRunId", "script", "scriptPath"]);
+    // `title` / `description` used to be declared and ignored for Claude Code
+    // parity: two property schemas in the tool spec of every turn for values
+    // nothing reads. They are gone, and a ported call that still passes them
+    // runs anyway — an undeclared key is not rejected, so the schema can be
+    // exactly what the handler consumes.
+    expect(props).not.toContain("title");
+    expect(props).not.toContain("description");
+  });
+
   it("runs the inline script when only `script` is given, and persists it", async () => {
     const result = await tools.get("SubagentWorkflow").execute("tc-1", { script: inlineScript }, undefined, undefined, workflowCtx());
 

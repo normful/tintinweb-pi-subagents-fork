@@ -109,7 +109,7 @@ export interface SubagentsSettings {
   disableDefaultAgents?: boolean;
   /**
    * Which Agent tool description the LLM sees. "full" (default) is the rich
-   * Claude Code-style prompt; "compact" is a ~75% smaller version (one-line
+   * Claude Code-style prompt; "compact" is a ~70% smaller version (one-line
    * agent type list, terse usage notes) for small/local models where tool-spec
    * tokens are expensive; "custom" reads `.pi/agent-tool-description.md`
    * (project, falling back to `<agentDir>/agent-tool-description.md`) with

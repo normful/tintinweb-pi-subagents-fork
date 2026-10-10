@@ -101,7 +101,10 @@ describe("the agent() contract it documents", () => {
 
 describe("the examples it ships", () => {
   it("writes at least one options literal to check", () => {
-    expect(documentedAgentOptions().length).toBeGreaterThan(4);
+    // One example is enough to make the checks below real; the description
+    // carries exactly one (the canonical pipeline), because five of them cost
+    // more context than they bought.
+    expect(documentedAgentOptions().length).toBeGreaterThan(0);
   });
 
   it("uses only options the runtime accepts", () => {

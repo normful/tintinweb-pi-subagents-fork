@@ -65,9 +65,8 @@ export function createStructuredOutputTool(
     name: STRUCTURED_OUTPUT_TOOL_NAME,
     label: "Structured Output",
     description:
-      "Report your final answer. Call this exactly once, with the complete result, and put everything the "
-      + "caller needs inside the arguments — text written outside this call is discarded. If a call is "
-      + "rejected for not matching the schema, fix the reported fields and call it again.",
+      "Report your final answer. Call this exactly once with the complete result — text written outside this call is discarded. "
+      + "If a call is rejected for not matching the schema, fix the reported fields and call it again.",
     promptSnippet: "Report your final answer as structured data",
     promptGuidelines: [
       "Your final answer MUST be reported by calling StructuredOutput. Prose outside that call is discarded.",

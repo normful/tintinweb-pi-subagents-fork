@@ -224,7 +224,8 @@ export const meta = {
 | `name` | string | A saved workflow — `<name>.js` in one of the three directories above. Lowest precedence |
 | `args` | any | Handed to the script as the `args` global, verbatim. Must be JSON-shaped |
 | `resumeFromRunId` | string | Replay an earlier run in this session. Matches `^wf_[a-z0-9-]{6,}$` |
-| `title` / `description` | string | Accepted and ignored — for Claude Code parity, so a ported call does not fail. A workflow is named by its `meta` block |
+
+A workflow is named by its `meta` block: `title` and `description` are not parameters. Passing them anyway still runs — an undeclared key is not rejected — but nothing reads them.
 
 At least one of `script` / `scriptPath` / `name` is required; `scriptPath` wins over `script`, which wins over `name`.
 
@@ -320,7 +321,7 @@ A run's concurrency limit is its own, independent of the session's `maxConcurren
 
 ## Recipes
 
-The orchestration patterns themselves — adversarial verification, judge panels, loop-until-dry — live in exactly one place: the tool description the model reads on every turn. It already knows them. So these are not instructions for writing scripts by hand; they are **what to ask for**, and what the resulting script looks like so you can recognize it in the file.
+These orchestration patterns — adversarial verification, judge panels, loop-until-dry — are not spelled out in `SubagentWorkflow`'s description any more: the tool spec carries only the scripting contract, because it is re-sent on every turn whether or not a workflow runs. So these are **what to ask for**, and what the resulting script looks like so you can recognize it in the file. Ask in the pattern's own terms; the model writes it from your wording.
 
 ### Fan out over a list you don't have yet
 
