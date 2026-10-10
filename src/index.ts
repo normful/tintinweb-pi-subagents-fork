@@ -2123,6 +2123,7 @@ Terse command-style prompts produce shallow, generic work.
         displayName,
         description: params.description,
         subagentType,
+        type: subagentType,
         modelName,
         tags: agentTags.length > 0 ? agentTags : undefined,
       };
@@ -2150,6 +2151,7 @@ Terse command-style prompts produce shallow, generic work.
           displayName: getDisplayName(type),
           description: rec.description,
           subagentType: type,
+          type,
           modelName: recModelName,
           tags: recTags.length > 0 ? recTags : undefined,
         };

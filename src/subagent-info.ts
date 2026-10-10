@@ -32,7 +32,13 @@ export interface SubagentInfo {
   durationMs: number;
   toolUses: number;
   result?: string;
-  error?: string;
+  /**
+   * Always a string, and `""` when there is nothing to report. A stopped,
+   * aborted or startup-failed agent never assigns `record.error`, and a
+   * receiver validating a required string rejects the WHOLE event or entry
+   * over one `undefined` field rather than the field alone.
+   */
+  error: string;
   /**
    * The validated `StructuredOutput` payload as canonical JSON. Set only when
    * the spawn asked for a schema and the agent produced a valid report.
@@ -59,7 +65,11 @@ export interface SubagentInfo {
 
 /**
  * Build a record's `SubagentInfo`. A key whose value is unknown is omitted,
- * never present as `undefined`, as on `subagents:usage`.
+ * never present as `undefined`, as on `subagents:usage`. `error` is the one
+ * exception: it is always present, `""` when there is nothing to report,
+ * because consumers validate it as a required string and an absent key fails
+ * that check exactly as `undefined` does. `-p`/RPC observers and the
+ * `subagents:failed` payload both read it that way.
  */
 export function toSubagentInfo(record: AgentRecord, now = Date.now()): SubagentInfo {
   // `lifetimeUsage` is lifetime-accumulated (Σ over every assistant
@@ -86,7 +96,10 @@ export function toSubagentInfo(record: AgentRecord, now = Date.now()): SubagentI
     durationMs: (record.completedAt ?? now) - record.startedAt,
     toolUses: record.toolUses,
     ...(record.result !== undefined ? { result: record.result } : {}),
-    ...(record.error !== undefined ? { error: record.error } : {}),
+    // The one exception to the omit rule above: `error` is validated as a
+    // required string by consumers, so it is present and empty rather than
+    // absent. See the header.
+    error: record.error ?? "",
     ...(record.structuredJson !== undefined ? { structuredJson: record.structuredJson } : {}),
     ...(record.sessionFile !== undefined ? { sessionFile: record.sessionFile } : {}),
     ...(total > 0 ? { tokens: { input: u.input, output: u.output, total } } : {}),

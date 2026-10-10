@@ -67,6 +67,12 @@ export interface AgentDetails {
   displayName: string;
   description: string;
   subagentType: string;
+  /**
+   * Machine-readable alias of `subagentType`, for consumers that read the tool
+   * result envelope rather than render it (e.g. telemetry spans). Always mirrors
+   * `subagentType`; the UI keeps rendering `subagentType`.
+   */
+  type?: string;
   toolUses: number;
   tokens: string;
   durationMs: number;
