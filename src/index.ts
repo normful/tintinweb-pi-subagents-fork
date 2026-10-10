@@ -560,7 +560,11 @@ export default function (pi: ExtensionAPI) {
       type: record.type,
       description: record.description,
       result: record.result,
-      error: record.error,
+      // Always a string: a stopped or aborted agent never assigns record.error,
+      // and an `undefined` value fails a receiver's `Type.String()` payload
+      // check, dropping the whole `subagents:failed` event rather than one
+      // field. Empty is the honest "no error text" and matches the README.
+      error: record.error ?? "",
       status: record.status,
       toolUses: record.toolUses,
       durationMs,
@@ -2067,6 +2071,7 @@ Terse command-style prompts produce shallow, generic work.
         displayName,
         description: params.description,
         subagentType,
+        type: subagentType,
         modelName,
         tags: agentTags.length > 0 ? agentTags : undefined,
       };
@@ -2094,6 +2099,7 @@ Terse command-style prompts produce shallow, generic work.
           displayName: getDisplayName(type),
           description: rec.description,
           subagentType: type,
+          type,
           modelName: recModelName,
           tags: recTags.length > 0 ? recTags : undefined,
         };
