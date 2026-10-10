@@ -78,7 +78,7 @@ ONLY call this tool when the user has explicitly opted into multi-agent orchestr
 - The user invoked a skill or slash command whose instructions tell you to call SubagentWorkflow.
 - The user asked you to run a specific named or saved workflow.
 
-For any other task — even one that would clearly benefit from parallelism — do NOT call this tool. Use the Agent tool for individual subagents, or briefly describe what a multi-agent workflow could do and how much it would roughly cost, and ask the user whether to run it. Mention they can ask for one with "use a workflow" in a future message to skip the ask.
+Pass the script inline via \`script\` — do not Write it to a file first. Every invocation persists its script under the session directory and returns the path, so iterating means editing that file and re-invoking with \`{scriptPath: "<path>"}\`. A script you will run more than once belongs in \`.pi/workflows/<name>.js\` (or \`.agents/workflows/\`, \`<agent dir>/workflows/\`), called with \`name: "<name>"\`.
 
 Every script must begin with \`export const meta = {...}\`: a PURE LITERAL (no variables, calls or interpolation) giving the workflow's \`name\`, a one-line \`description\` (shown in the permission dialog) and optionally \`phases\` — one \`{ title, detail? }\` per phase() call, titles matched exactly. Pass the script inline via \`script\` — do not Write it to a file first, and do not also set the tool's \`name\` input (that selects a saved workflow); it is plain JavaScript, not TypeScript.
 
@@ -97,9 +97,7 @@ The canonical multi-stage pattern — pipeline by default, each dimension verifi
         .then(v => ({...f, verdict: v}))
     ))
   )
-  const confirmed = results.flat().filter(Boolean).filter(f => f.verdict?.isReal)
-  return { confirmed }
-  // Dimension 'bugs' findings verify while dimension 'perf' is still reviewing. No wasted wall-clock.
+  return { confirmed: results.flat().filter(Boolean).filter(f => f.verdict?.isReal) }
 
 ${WORKFLOW_SKILL_POINTER}
 

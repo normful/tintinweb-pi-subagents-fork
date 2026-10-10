@@ -232,7 +232,8 @@ export const meta = {
 | `name` | string | A saved workflow — `<name>.js` in one of the three directories above. Lowest precedence |
 | `args` | any | Handed to the script as the `args` global, verbatim. Must be JSON-shaped |
 | `resumeFromRunId` | string | Replay an earlier run in this session. Matches `^wf_[a-z0-9-]{6,}$` |
-| `title` / `description` | string | Accepted and ignored — for Claude Code parity, so a ported call does not fail. A workflow is named by its `meta` block |
+
+A workflow is named by its `meta` block: `title` and `description` are not parameters. Passing them anyway still runs — an undeclared key is not rejected — but nothing reads them.
 
 At least one of `script` / `scriptPath` / `name` is required; `scriptPath` wins over `script`, which wins over `name`.
 
@@ -374,7 +375,7 @@ Under `pi -p` (and JSON mode), a background workflow the model started keeps the
 
 ## Recipes
 
-The orchestration patterns themselves — adversarial verification, judge panels, loop-until-dry — live in exactly one place: the bundled `workflow-authoring` skill, which by default is part of the tool description the model reads on every turn. It already knows them. So these are not instructions for writing scripts by hand; they are **what to ask for**, and what the resulting script looks like so you can recognize it in the file.
+The orchestration patterns themselves — adversarial verification, judge panels, loop-until-dry — are not in `SubagentWorkflow`'s every-turn description: the tool spec carries the scripting contract and a pointer, because it is re-sent on every turn whether or not a workflow runs. The bundled `workflow-authoring` skill carries the reference, and `workflowToolExposure: "inline"` folds it back into the description for a model that would rather not read a file. So these are **what to ask for**, and what the resulting script looks like so you can recognize it in the file. Ask in the pattern's own terms; the model writes it from your wording.
 
 ### Fan out over a list you don't have yet
 

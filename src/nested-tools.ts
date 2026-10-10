@@ -208,11 +208,11 @@ export function createNestedSubagentTools(context: NestedToolContext): ToolDefin
       // hand in an answer that calls them still running.
       "A background nested agent reports back when it finishes: your run continues with its result before you return, so never report it as still running.",
     parameters: Type.Object({
-      prompt: Type.String({ description: "Self-contained task for the nested agent." }),
-      description: Type.String({ description: "Short 3-5 word task description." }),
+      prompt: Type.String(),
+      description: Type.String({ description: "Short 3-5 word summary (shown in UI)." }),
       subagent_type: Type.String({ description: `Allowed nested agent type. Available: ${available.join(", ") || "none"}.` }),
-      model: Type.Optional(Type.String({ description: "Optional provider/model override." })),
-      thinking: Type.Optional(Type.String({ description: "Optional thinking level." })),
+      model: Type.Optional(Type.String()),
+      thinking: Type.Optional(Type.String()),
       max_turns: Type.Optional(Type.Number({ minimum: 1 })),
       run_in_background: Type.Optional(
         Type.Boolean({
