@@ -6,13 +6,15 @@
  * over the source at the call site, so a saved file and an inline one fail the
  * same way on a bad `meta` block.
  *
- * Roots mirror `loadCustomAgents` rather than inventing a fourth convention —
- * project `.pi` is the authority, the shared `.agents` workspace is an extra
- * read location, and the user's agent dir is the fallback:
+ * Roots mirror `loadCustomAgents` rather than inventing a convention of their
+ * own — project `.pi` is the authority, the shared `.agents` workspace is an
+ * extra read location, the user's agent dir is the fallback, and directories
+ * declared by installed pi packages come last:
  *
  *   1. <cwd>/.pi/workflows/<name>.js
  *   2. <cwd>/.agents/workflows/<name>.js
  *   3. getAgentDir()/workflows/<name>.js   (default ~/.pi/agent/workflows)
+ *   4. directories an installed pi package declares (see `savedWorkflowRoots`)
  *
  * Precedence is expressed as first-hit-wins here, not last-write-wins as in the
  * agent loader, because a name resolves to one file — there is no map to
