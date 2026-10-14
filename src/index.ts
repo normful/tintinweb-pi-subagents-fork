@@ -2645,7 +2645,7 @@ Brief the agent like a smart colleague who just walked into the room — it has 
       name: Type.Optional(
         Type.String({
           description:
-            "A saved workflow: `<name>.js` in .pi/workflows/, .agents/workflows/ or the agent dir. Lowest precedence — `scriptPath` and `script` win over it.",
+            "A saved workflow: `<name>.js` in .pi/workflows/, .agents/workflows/, the agent dir, or a directory an installed pi package declares. Lowest precedence — `scriptPath` and `script` win over it.",
         }),
       ),
       args: Type.Optional(

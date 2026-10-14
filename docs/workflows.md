@@ -121,8 +121,9 @@ A script you will run more than once belongs somewhere durable. Copy it out of t
 | `<project>/.pi/workflows/<name>.js` | This project. Checked in, if you want it shared |
 | `<project>/.agents/workflows/<name>.js` | This project, in the tool-agnostic directory |
 | `<agent dir>/workflows/<name>.js` | You, everywhere — follows you across projects |
+| Directories declared by installed pi packages | Lowest precedence — see [Shipping agents in a pi package](../README.md#shipping-agents-in-a-pi-package) |
 
-First hit wins, in that order, so a project file shadows a same-named global one.
+First hit wins, in that order, so a project file shadows a same-named global one and a script of yours always wins the name from a package.
 
 The file must carry an `export const meta = { name, description }` declaration. Those are ordinary directories that may hold anything, so that declaration is what marks a file as a workflow — name something else and you are told it is not a workflow rather than getting a parse error from halfway through it. Nothing in the file is executed to decide that.
 
@@ -221,7 +222,7 @@ export const meta = {
 |---|---|---|
 | `script` | string | Inline source. Must begin with `export const meta = { name, description }` |
 | `scriptPath` | string | A script file, absolute or project-relative. **Takes precedence over `script`** — this is how an edited workflow is re-run |
-| `name` | string | A saved workflow — `<name>.js` in one of the three directories above. Lowest precedence |
+| `name` | string | A saved workflow — `<name>.js` in one of the directories above, package directories last. Lowest precedence |
 | `args` | any | Handed to the script as the `args` global, verbatim. Must be JSON-shaped |
 | `resumeFromRunId` | string | Replay an earlier run in this session. Matches `^wf_[a-z0-9-]{6,}$` |
 
@@ -398,7 +399,7 @@ A dropped `await`, usually inside a `pipeline` stage. The run would otherwise fi
 Not a git repo, no commits yet, or `git worktree add` failed. Isolation is a strict guarantee rather than a hint, so it fails loudly instead of quietly running in your main tree. Initialize git and commit at least once, or drop the option.
 
 **`No saved workflow named "x". Looked in: …`**
-The file is not in any of the three directories, or it is there but carries no `export const meta =` declaration, so it is not recognized as a workflow. The message lists the directories it searched and any workflows it did find.
+The file is not in any of the directories listed above, or it is there but carries no `export const meta =` declaration, so it is not recognized as a workflow. The message lists the directories it searched and any workflows it did find.
 
 **The run seems stuck with agents queued.**
 Concurrency is capped at `max(1, min(16, cpus - 2))`. Queued agents start as slots free. A pause (`p`) also holds new starts while letting running agents finish.

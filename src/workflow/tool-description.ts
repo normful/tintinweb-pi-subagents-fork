@@ -46,7 +46,7 @@ ONLY call this tool when the user has explicitly opted into multi-agent orchestr
 
 The right move is often **hybrid**: scout inline first (list the files, find the channels, scope the diff) to discover the work-list, then pipeline over it. You do not need to know the shape of the work before the *task* — only before the *orchestration step*.
 
-Pass the script inline via \`script\` — do not Write it to a file first. Every invocation persists its script under the session directory and returns the path, so iterating means editing that file and re-invoking with \`{scriptPath: "<path>"}\`. A script you will run more than once belongs in \`.pi/workflows/<name>.js\` (or \`.agents/workflows/\`, \`<agent dir>/workflows/\`), called with \`name: "<name>"\`.
+Pass the script inline via \`script\` — do not Write it to a file first. Every invocation persists its script under the session directory and returns the path, so iterating means editing that file and re-invoking with \`{scriptPath: "<path>"}\`. A script you will run more than once belongs in \`.pi/workflows/<name>.js\` (or \`.agents/workflows/\`, \`<agent dir>/workflows/\`, or a directory an installed pi package declares), called with \`name: "<name>"\`.
 
 Every script must begin with \`export const meta = {...}\` — a PURE LITERAL, with no variables, function calls, spreads or template interpolation:
   export const meta = {
