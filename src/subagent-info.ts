@@ -31,7 +31,12 @@ export interface SubagentInfo {
   /** Until `completedAt`, the time elapsed so far. */
   durationMs: number;
   toolUses: number;
-  result?: string;
+  /**
+   * Always a string, and `""` when the agent produced no text. Same reason as
+   * `error`: `AgentRecord.result` is optional and several settle paths never
+   * assign it, and an absent key fails a required-string check.
+   */
+  result: string;
   /**
    * Always a string, and `""` when there is nothing to report. A stopped,
    * aborted or startup-failed agent never assigns `record.error`, and a
@@ -95,7 +100,7 @@ export function toSubagentInfo(record: AgentRecord, now = Date.now()): SubagentI
     ...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
     durationMs: (record.completedAt ?? now) - record.startedAt,
     toolUses: record.toolUses,
-    ...(record.result !== undefined ? { result: record.result } : {}),
+    result: record.result ?? "",
     // The one exception to the omit rule above: `error` is validated as a
     // required string by consumers, so it is present and empty rather than
     // absent. See the header.

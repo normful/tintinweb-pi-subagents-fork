@@ -27,8 +27,14 @@ export interface AgentRecordEntryData {
   type: AgentRecord["type"];
   description: string;
   status: AgentRecord["status"];
-  result?: string;
-  error?: string;
+  /**
+   * Always a string, `""` when there is nothing to report. `AgentRecord.result`
+   * and `.error` are optional and several settle paths leave them unassigned;
+   * a receiver validating a required string rejects the WHOLE entry over one
+   * absent field, so both are present and empty instead.
+   */
+  result: string;
+  error: string;
   startedAt: number;
   completedAt?: number;
   /**
@@ -64,8 +70,8 @@ export function agentRecordEntryData(record: AgentRecord): AgentRecordEntryData 
     type: record.type,
     description: record.description,
     status: record.status,
-    result: record.result,
-    error: record.error,
+    result: record.result ?? "",
+    error: record.error ?? "",
     startedAt: record.startedAt,
     completedAt: record.completedAt,
     sessionFile: record.sessionFile,

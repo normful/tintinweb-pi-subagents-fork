@@ -68,9 +68,20 @@ describe("toSubagentInfo", () => {
     const info = toSubagentInfo(record(), 1500);
 
     expect(Object.keys(info).sort()).toEqual([
-      "depth", "description", "durationMs", "id", "startedAt", "status", "toolUses", "type",
+      "depth", "description", "durationMs", "error", "id", "result", "startedAt", "status", "toolUses", "type",
     ]);
     expect(info.depth).toBe(1);
     expect(info.durationMs).toBe(500);
+    // `result` and `error` are the documented exception to the omit rule: always
+    // present, `""` when there is nothing to report, because a receiver
+    // validating a required string drops the whole event over an absent key.
+    expect(info.result).toBe("");
+    expect(info.error).toBe("");
+  });
+
+  it("keeps real text and a real error instead of blanking them", () => {
+    const info = toSubagentInfo({ ...record(), result: "done", error: "boom" }, 1500);
+    expect(info.result).toBe("done");
+    expect(info.error).toBe("boom");
   });
 });
