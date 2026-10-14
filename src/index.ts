@@ -559,11 +559,13 @@ export default function (pi: ExtensionAPI) {
       id: record.id,
       type: record.type,
       description: record.description,
-      result: record.result,
-      // Always a string: a stopped or aborted agent never assigns record.error,
-      // and an `undefined` value fails a receiver's `Type.String()` payload
-      // check, dropping the whole `subagents:failed` event rather than one
-      // field. Empty is the honest "no error text" and matches the README.
+      // Always strings, for one reason: a stopped, aborted or startup-failed
+      // agent never ran, so `record.result` and `record.error` are both
+      // unassigned, and an `undefined` value fails a receiver's
+      // `Type.String()` payload check — dropping the whole `subagents:failed`
+      // event rather than one field. Empty is the honest "no text" and matches
+      // the README.
+      result: record.result ?? "",
       error: record.error ?? "",
       status: record.status,
       toolUses: record.toolUses,
@@ -590,10 +592,13 @@ export default function (pi: ExtensionAPI) {
       pi.events.emit("subagents:completed", eventData);
     }
 
-    // Persist final record for cross-extension history reconstruction
+    // Persist final record for cross-extension history reconstruction. Same
+    // always-a-string rule as the event payload above — this entry is read by
+    // the same kind of consumer, and a stopped or startup-failed agent has
+    // neither text nor an error to report.
     pi.appendEntry("subagents:record", {
       id: record.id, type: record.type, description: record.description,
-      status: record.status, result: record.result, error: record.error,
+      status: record.status, result: record.result ?? "", error: record.error ?? "",
       startedAt: record.startedAt, completedAt: record.completedAt,
     });
 

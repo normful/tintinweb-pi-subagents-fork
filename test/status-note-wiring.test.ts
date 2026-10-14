@@ -318,3 +318,104 @@ describe("subagents:compacted", () => {
     expect(pi.events.emit).not.toHaveBeenCalledWith("subagents:compacted", expect.anything());
   });
 });
+
+// `subagents:completed` / `subagents:failed` and the `subagents:record` entry
+// are documented cross-extension contracts (README's event table, docs/rpc.md)
+// that nothing in this process reads. A consumer that validates a required
+// string rejects the WHOLE payload over one `undefined` field, so "as good as
+// absent" is the expensive kind of wrong here.
+describe("a payload field a consumer validates is never undefined", () => {
+  /** A background run whose runner rejects: status "error", no text ever set. */
+  async function failABackgroundRun() {
+    vi.mocked(runAgent).mockRejectedValue(new Error("runner exploded"));
+    const { pi, tools } = makePi();
+    subagentsExtension(pi);
+    await tools.get("Agent").execute(
+      "tc-fail",
+      { prompt: "go", description: "doomed", subagent_type: "general-purpose", run_in_background: true },
+      undefined, undefined, ctx(),
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return pi;
+  }
+
+  it("carries an empty string, not undefined, for a run that produced no text", async () => {
+    const pi = await failABackgroundRun();
+
+    const failed = pi.events.emit.mock.calls.find((c: any[]) => c[0] === "subagents:failed")?.[1];
+    expect(failed).toBeDefined();
+    expect(failed.status).toBe("error");
+    expect(failed.error).toBe("runner exploded");
+    // The runner rejected before ever returning text, so `result` was never
+    // assigned — exactly the case a required-string check drops the event over.
+    expect(failed.result).toBe("");
+    expect(typeof failed.result).toBe("string");
+  });
+
+  it("carries the same strings on the subagents:record session entry", async () => {
+    const pi = await failABackgroundRun();
+
+    const entry = pi.appendEntry.mock.calls.find((c: any[]) => c[0] === "subagents:record")?.[1];
+    expect(entry).toBeDefined();
+    expect(entry.result).toBe("");
+    expect(entry.error).toBe("runner exploded");
+  });
+
+  it("carries an empty string for error on a run the user stopped", async () => {
+    // A stop never assigns `record.error` — the run was killed, not broken — so
+    // the field is `undefined` on exactly the status the README calls "present
+    // on that row too, just empty".
+    let finish: (v: any) => void = () => {};
+    vi.mocked(runAgent).mockReturnValue(new Promise((r) => { finish = r; }) as any);
+    const { pi, tools, eventHandlers, lifecycle } = makePi();
+    subagentsExtension(pi);
+    await bind(lifecycle); // register the RPC channels via session_start (#142)
+
+    const spawn = await tools.get("Agent").execute(
+      "tc-stop",
+      { prompt: "go", description: "stopped", subagent_type: "general-purpose", run_in_background: true },
+      undefined, undefined, ctx(),
+    );
+    const id = textOf(spawn).match(/Agent ID: (\S+)/)?.[1];
+    expect(id, "background spawn should surface an agent id").toBeTruthy();
+    eventHandlers.get("subagents:rpc:stop")?.({ requestId: "r1", agentId: id });
+    // The record only reaches `onComplete` once the run settles, so the stop has
+    // to be followed by the run ending — as a real abort does.
+    finish({ responseText: "partial", session: { dispose: vi.fn() }, aborted: false, steered: false });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const failed = pi.events.emit.mock.calls.find((c: any[]) => c[0] === "subagents:failed")?.[1];
+    expect(failed.status).toBe("stopped");
+    expect(failed.error).toBe("");
+    expect(failed.result).toBe("partial");
+
+    const entry = pi.appendEntry.mock.calls.find((c: any[]) => c[0] === "subagents:record")?.[1];
+    expect(entry.status).toBe("stopped");
+    expect(entry.error).toBe("");
+    expect(entry.result).toBe("partial");
+  });
+
+  it("does not invent text for a run that has some, and leaves a real error alone", async () => {
+    // The negative twin: a `?? ""` that swallowed a genuine value would pass
+    // both tests above, so the fields that DO have content are pinned too.
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "the actual answer",
+      session: { dispose: vi.fn() } as any,
+      aborted: false,
+      steered: false,
+    });
+    const { pi, tools } = makePi();
+    subagentsExtension(pi);
+    await tools.get("Agent").execute(
+      "tc-ok",
+      { prompt: "go", description: "fine", subagent_type: "general-purpose", run_in_background: true },
+      undefined, undefined, ctx(),
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const completed = pi.events.emit.mock.calls.find((c: any[]) => c[0] === "subagents:completed")?.[1];
+    expect(completed.result).toBe("the actual answer");
+    expect(completed.error).toBe("");
+  });
+});
