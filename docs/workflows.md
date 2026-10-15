@@ -378,6 +378,8 @@ Under `pi -p` (and JSON mode), a background workflow the model started keeps the
 
 The orchestration patterns themselves — adversarial verification, judge panels, loop-until-dry — are not in `SubagentWorkflow`'s every-turn description: the tool spec carries the scripting contract and a pointer, because it is re-sent on every turn whether or not a workflow runs. The bundled `workflow-authoring` skill carries the reference, and `workflowToolExposure: "inline"` folds it back into the description for a model that would rather not read a file. So these are **what to ask for**, and what the resulting script looks like so you can recognize it in the file. Ask in the pattern's own terms; the model writes it from your wording.
 
+The DSL itself — every `agent()` option and its combination rules, the determinism limits, the caps, and journal-backed `resumeFromRunId` — is documented in the `writing-subagent-workflows` skill this package ships. It loads on demand, so it costs nothing until a workflow is actually being written; the tool description names it and keeps every contract the runtime enforces inline.
+
 ### Fan out over a list you don't have yet
 
 > *"audit every route file under src/routes for missing auth checks"*

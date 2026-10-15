@@ -79,36 +79,42 @@ describe("the workflow-authoring skill", () => {
   });
 });
 
+/** A stand-in roster: the description names the types it can pass to `agentType`. */
+const ROSTER_NAMES = "Explore, general-purpose, Plan";
+
 describe("the tool description", () => {
   it("points at the skill by a path that resolves", () => {
-    const path = fullWorkflowToolDescription.match(/load the `workflow-authoring` skill \(read `([^`]+)`\)/)?.[1];
+    const path = fullWorkflowToolDescription(ROSTER_NAMES).match(/load the `workflow-authoring` skill \(read `([^`]+)`\)/)?.[1];
     expect(path, "no skill pointer in the description").toBeDefined();
     expect(path).toBe(SKILL_FILE);
   });
 
-  it("keeps what decides whether to call it, and the pattern to start from", () => {
-    expect(fullWorkflowToolDescription).toContain("ONLY call this tool when the user has explicitly opted into");
-    expect(fullWorkflowToolDescription).toContain("Every script must begin with `export const meta = {...}`");
-    expect(fullWorkflowToolDescription).toContain("The canonical multi-stage pattern");
-    expect(fullWorkflowToolDescription).toContain("{{typeList}}");
+  it("keeps what decides whether to call it, and the shape to start from", () => {
+    const text = fullWorkflowToolDescription(ROSTER_NAMES);
+    expect(text).toContain("ONLY call this when the user explicitly opted into");
+    expect(text).toContain("Every script must begin with `export const meta = {...}`");
+    expect(text).toContain("Canonical shape:");
+    // The roster is an argument, interpolated at registration, because the skill
+    // is a static file and cannot carry a list that grows with custom agents.
+    expect(text).toContain(ROSTER_NAMES);
   });
 
   it("no longer carries the reference", () => {
     for (const marker of REFERENCE_MARKERS) {
-      expect(fullWorkflowToolDescription, marker).not.toContain(marker);
+      expect(fullWorkflowToolDescription(ROSTER_NAMES), marker).not.toContain(marker);
     }
-    expect(fullWorkflowToolDescription.length).toBeLessThan(8000);
+    expect(fullWorkflowToolDescription(ROSTER_NAMES).length).toBeLessThan(8000);
   });
 });
 
 describe("the inline reference", () => {
-  const inline = workflowToolDescription("inline");
+  const inline = workflowToolDescription("inline", ROSTER_NAMES);
 
   it("is the description with the skill body in place of the pointer", () => {
     expect(inline).not.toMatch(/Before writing a script, load the `workflow-authoring` skill/);
     for (const marker of REFERENCE_MARKERS) expect(inline, marker).toContain(marker);
-    expect(inline).toContain("The canonical multi-stage pattern");
-    expect(inline).toContain("{{typeList}}");
+    expect(inline).toContain("Canonical shape:");
+    expect(inline).toContain(ROSTER_NAMES);
   });
 
   it("carries the skill body exactly, without its frontmatter", () => {
@@ -117,7 +123,7 @@ describe("the inline reference", () => {
     expect(inline).not.toMatch(/^---$/m);
   });
 
-  it("leaves the default unchanged", () => {
-    expect(workflowToolDescription("skill")).toBe(fullWorkflowToolDescription);
+  it("leaves \"skill\" as the plain description", () => {
+    expect(workflowToolDescription("skill", ROSTER_NAMES)).toBe(fullWorkflowToolDescription(ROSTER_NAMES));
   });
 });

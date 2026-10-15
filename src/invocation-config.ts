@@ -17,19 +17,22 @@ import type { AgentConfig, IsolationMode, JoinMode, ThinkingLevel } from "./type
  * The wording tracks Claude Code's own `isolation` parameter, whose phrasing
  * models have the most exposure to: one description on the union rather than
  * per-value ones, opening "Isolation mode.", then a sentence per value in
- * schema order, each with its caveats in a trailing parenthetical. Two clauses
- * are ours, because our shape is not theirs — `"off"` has no counterpart there
+ * schema order, each with its caveats in a trailing clause. Two clauses are
+ * ours, because our shape is not theirs — `"off"` has no counterpart there
  * (their enum is `worktree | remote`, so both of their values do something),
  * and neither does the uncommitted-work warning, which is the specific trap
  * #231 fell into. Deliberately absent is any "only use a worktree when…"
  * restriction: Claude Code's `Agent` tool states the capability and stops, and
  * a second legal value is what lets a model decline one, not being told to.
+ * Trimmed here rather than left at Claude Code's length: it is re-sent every
+ * turn, and the schema's job is to make the safe value salient, not to argue
+ * for it.
  */
 const isolationParamShape = {
   isolation: Type.Optional(
     Type.Union([Type.Literal("off"), Type.Literal("worktree")], {
       description:
-        'Isolation mode. Default "off". "off" runs the agent in the current checkout, the same as omitting the field. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo (a copy cannot see uncommitted or staged changes in the main checkout).',
+        'Isolation mode. "off" (default) runs in the current checkout, same as omitting it. "worktree" gives the agent a temporary git worktree — an isolated copy that cannot see uncommitted or staged changes.',
     }),
   ),
 };

@@ -487,7 +487,7 @@ export const SETTING_DEFAULTS: { readonly [K in keyof Required<SubagentsSettings
   strictAgentFiles: false,
   disableDefaultAgents: false,
   toolDescriptionMode: "full",
-  workflowToolExposure: "inline",
+  workflowToolExposure: "skill",
   fleetView: true,
   agentMentions: "model",
   rememberAgents: true,

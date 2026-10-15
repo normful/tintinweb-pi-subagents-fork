@@ -100,21 +100,30 @@ describe("toolDescriptionMode", () => {
     const desc: string = tools.get("Agent").description;
     expect(desc).toContain("## Usage notes");
     expect(desc).toContain("## Writing the prompt");
-    // Full agent descriptions are embedded (a late Explore sentence survives).
-    expect(desc).toContain("very thorough");
+    // The every-turn roster is the bare name list — every agent is still named,
+    // and none of their descriptions is paid for on every turn.
+    const roster = desc.split("Available agent types:\n")[1].split("\n")[0];
+    expect(roster.split(", ")).toEqual(
+      expect.arrayContaining(["general-purpose", "Explore", "Plan"]),
+    );
+    expect(desc).not.toContain("very thorough");
   });
 
-  it("compact mode swaps in the short description with one-line type list", () => {
+  it("compact mode swaps in the short description and the same bare name list", () => {
     const tools = setup({ toolDescriptionMode: "compact" });
     const desc: string = tools.get("Agent").description;
     expect(desc).toContain("Launch an autonomous agent");
     expect(desc).not.toContain("## Usage notes");
     expect(desc).not.toContain("## Writing the prompt");
-    // Type list keeps every agent but only the first sentence of each description.
-    expect(desc).toContain("- general-purpose:");
-    expect(desc).toContain("- Explore: Fast read-only search agent for locating code. (Tools:");
-    expect(desc).not.toContain("very thorough");
-    // The point of the feature: materially smaller than the full version.
+    // Both modes name every agent; neither renders catalogue rows.
+    const roster = desc.split("Agent types:\n")[1].split("\n")[0];
+    expect(roster.split(", ")).toEqual(
+      expect.arrayContaining(["general-purpose", "Explore", "Plan"]),
+    );
+    expect(desc).not.toContain("Explore: Fast read-only search agent");
+    expect(desc).not.toContain("(Tools:");
+    // The point of the feature: materially smaller than the full version. A
+    // ceiling rather than a target — the roster is bounded independently.
     expect(desc.length).toBeLessThan(1600);
   });
 
@@ -369,124 +378,4 @@ describe("toolDescriptionMode", () => {
     });
   });
 
-  // The tool description is the only thing the orchestrator LLM knows about an
-  // agent's capabilities before spawning it. `tools: none` and an `ext:`-only
-  // `tools:` both parse to zero built-ins (custom-agents.ts parseToolsField),
-  // and test/fixtures/.pi/agents/tools-none.md pins that the *runtime* really
-  // does drop every built-in. So the description must not claim otherwise —
-  // an agent advertised as having `bash` that cannot run `bash` gets routed
-  // work it can only fail at.
-  describe("tool scope suffix reflects the real built-in set", () => {
-    function withAgent(name: string, frontmatter: string, settings?: Record<string, unknown>) {
-      const extra = frontmatter ? `${frontmatter}\n` : "";
-      return setup(settings, () => {
-        mkdirSync(join(tmpDir, ".pi", "agents"), { recursive: true });
-        writeFileSync(
-          join(tmpDir, ".pi", "agents", `${name}.md`),
-          `---\ndescription: ${name} agent.\n${extra}---\n\nBody.\n`,
-        );
-      });
-    }
-
-    it("`tools: none` never claims the full built-in set", () => {
-      const tools = withAgent("quiet", "tools: none");
-      const desc: string = tools.get("Agent").description;
-      expect(desc).not.toContain("- quiet: quiet agent. (Tools: *)");
-    });
-
-    it("`tools: none` says none only when the agent can call nothing at all", () => {
-      // extensions: false and isolated: true both leave the agent with zero
-      // built-ins AND zero extension tools — the one case "none" is true.
-      for (const fm of ["tools: none\nextensions: false", "tools: none\nisolated: true"]) {
-        const tools = withAgent("silent", fm);
-        expect(tools.get("Agent").description).toContain("- silent: silent agent. (Tools: none)");
-      }
-    });
-
-    it("`tools: none` with extensions loaded is not described as having no tools", () => {
-      // Zero built-ins is not zero tools: test/fixtures/.pi/agents/tools-none.md
-      // pins that such an agent still surfaces alpha_read, alpha_write, beta_tool.
-      // Saying "none" understates it and routes work away from the only agent
-      // that could do it — the mirror of the bug this suffix used to have.
-      const tools = withAgent("probe", 'tools: none\nextensions: "./ext-alpha.mjs"');
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("- probe: probe agent. (Tools: no built-ins, extension tools only)");
-      expect(desc).not.toContain("- probe: probe agent. (Tools: *)");
-      expect(desc).not.toContain("- probe: probe agent. (Tools: none)");
-    });
-
-    it("an ext:-only `tools:` is described by what it actually has", () => {
-      const tools = withAgent("extonly", 'tools: "ext:probe.mjs"');
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("- extonly: extonly agent. (Tools: no built-ins, extension tools only)");
-      expect(desc).not.toContain("- extonly: extonly agent. (Tools: *)");
-    });
-
-    it("compact mode shares the suffix builder and must not diverge", () => {
-      const tools = withAgent("quiet", "tools: none\nextensions: false", { toolDescriptionMode: "compact" });
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("- quiet: quiet agent. (Tools: none)");
-      expect(desc).not.toContain("- quiet: quiet agent. (Tools: *)");
-    });
-
-    it("an omitted `tools:` still renders as * — absent means all built-ins", () => {
-      // Guards the fix from over-correcting: undefined (inherit everything,
-      // as the shipped defaults do) is not the same as [] (explicitly zero).
-      const tools = withAgent("broad", "");
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("- broad: broad agent. (Tools: *)");
-    });
-
-    it("a narrowed `tools:` still lists the names it actually has", () => {
-      const tools = withAgent("narrow", "tools: read, grep");
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("- narrow: narrow agent. (Tools: read, grep)");
-    });
-  });
-
-  describe("workflowToolExposure picks where the SubagentWorkflow reference lives", () => {
-    it("skill points at the skill instead of carrying the reference", () => {
-      const desc: string = setup({ workflowToolExposure: "skill" }).get("SubagentWorkflow").description;
-      expect(desc).toContain("load the `workflow-authoring` skill (read `");
-      expect(desc).not.toContain("Script body hooks:");
-    });
-
-    it("defaults to inline: the reference in place of the pointer, roster still rendered", () => {
-      // A model can skip the pointer — one did in a manual run — so by default
-      // the reference is in the description it cannot avoid reading.
-      const desc: string = setup().get("SubagentWorkflow").description;
-      expect(desc).not.toContain("Before writing a script, load the `workflow-authoring` skill");
-      expect(desc).toContain("# Workflow authoring reference");
-      expect(desc).toContain("Script body hooks:");
-      expect(desc).toContain("## Resume");
-      // The skill's frontmatter is for pi's loader, not the model.
-      expect(desc).not.toContain("name: workflow-authoring");
-      expect(desc).not.toContain("{{typeList}}");
-      expect(desc).toContain("- general-purpose:");
-    });
-
-    it("deferred carries the inline reference: a pointer would cost a second round trip after the search", () => {
-      const desc: string = setup({ workflowToolExposure: "deferred" }).get("SubagentWorkflow").description;
-      expect(desc).toContain("Script body hooks:");
-      expect(desc).not.toContain("Before writing a script, load the `workflow-authoring` skill");
-    });
-
-    it("inline and deferred tell the model not to load the listed skill they already carry", () => {
-      // pi lists the skill in the system prompt too; without this line a model
-      // read SKILL.md on top of the identical inline body.
-      const lead = "Do not load the `workflow-authoring` skill: its full text follows.";
-      const inline: string = setup().get("SubagentWorkflow").description;
-      const deferred: string = setup({ workflowToolExposure: "deferred" }).get("SubagentWorkflow").description;
-      const skill: string = setup({ workflowToolExposure: "skill" }).get("SubagentWorkflow").description;
-      expect(inline).toContain(`${lead}\n\n# Workflow authoring reference`);
-      expect(deferred).toContain(lead);
-      expect(skill).not.toContain(lead);
-    });
-
-    it("an invalid value is dropped — the inline default", () => {
-      const desc: string = setup({ workflowToolExposure: "both" }).get("SubagentWorkflow").description;
-      expect(desc).toContain("Script body hooks:");
-      expect(desc).not.toContain("Before writing a script, load the `workflow-authoring` skill");
-    });
-  });
 });

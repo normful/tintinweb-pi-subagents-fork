@@ -32,9 +32,12 @@ const SKILL_FILE = fileURLToPath(new URL("../skills/workflow-authoring/SKILL.md"
  * skill it points at. The contract holds for the pair, wherever a sentence
  * lives.
  */
+/** A stand-in roster: the description names the types it can pass to `agentType`. */
+const ROSTER_NAMES = "Explore, general-purpose, Plan";
+
 const description = existsSync(SKILL_FILE)
-  ? `${fullWorkflowToolDescription}\n\n${readFileSync(SKILL_FILE, "utf8")}`
-  : fullWorkflowToolDescription;
+  ? `${fullWorkflowToolDescription(ROSTER_NAMES)}\n\n${readFileSync(SKILL_FILE, "utf8")}`
+  : fullWorkflowToolDescription(ROSTER_NAMES);
 const workerSource = readFileSync(
   fileURLToPath(new URL("../src/workflow/worker-source.ts", import.meta.url)),
   "utf8",
@@ -190,14 +193,18 @@ describe("claims about pi's own surfaces", () => {
 describe("rendering", () => {
   // The tool description alone: it is the only part that is templated.
   it("keeps the placeholder the live agent roster is substituted into", () => {
-    expect(fullWorkflowToolDescription).toContain("{{typeList}}");
+    // The roster is interpolated as an argument at registration, not carried as a
+    // `{{placeholder}}`: it is the bare name list, not the catalogue, because this
+    // description is re-sent on every turn whether or not a workflow runs.
+    expect(fullWorkflowToolDescription(ROSTER_NAMES)).toContain(ROSTER_NAMES);
+    expect(description).not.toContain("{{");
   });
 
   it("leaves no unescaped template interpolation from the source literal", () => {
     // A bare `${...}` in the .ts literal would interpolate at module load and
     // reach the model as a value (or throw), not as the example text.
-    expect(fullWorkflowToolDescription).not.toContain("[object Object]");
+    expect(fullWorkflowToolDescription(ROSTER_NAMES)).not.toContain("[object Object]");
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal placeholder is the subject under test
-    expect(fullWorkflowToolDescription).toContain("${f.title}");
+    expect(fullWorkflowToolDescription(ROSTER_NAMES)).toContain("${f.title}");
   });
 });

@@ -379,6 +379,13 @@ describe("package-provided agents, wired through the extension", () => {
       }
     }
 
+    /**
+     * The Agent tool description, which carries the every-turn agent roster: the
+     * bare name list. The catalogue — one row per agent, with its description,
+     * model and tool scope — is rendered on demand and is not what these
+     * assertions are about; what they pin is whether the agent is advertised to
+     * the model at all, and a name either appears in the list or does not.
+     */
     const typeList = () => String(booted.tools.get("Agent")?.description ?? "");
 
     it("advertises it when pi has already saved a trust decision", async () => {
@@ -386,7 +393,7 @@ describe("package-provided agents, wired through the extension", () => {
       setupProjectPackage({ savedTrust: true });
 
       await boot(true);
-      expect(typeList()).toContain("- pkg-researcher:");
+      expect(typeList()).toContain("pkg-researcher");
     });
 
     it("advertises it under defaultProjectTrust: always, with no saved decision", async () => {
@@ -394,7 +401,7 @@ describe("package-provided agents, wired through the extension", () => {
       setupProjectPackage({ defaultTrust: "always" });
 
       await boot(true);
-      expect(typeList()).toContain("- pkg-researcher:");
+      expect(typeList()).toContain("pkg-researcher");
     });
 
     it("keeps it out entirely when the saved decision is distrust", async () => {
@@ -403,7 +410,7 @@ describe("package-provided agents, wired through the extension", () => {
 
       await boot(false);
       expect(getAllTypes()).not.toContain("pkg-researcher");
-      expect(typeList()).not.toContain("- pkg-researcher:");
+      expect(typeList()).not.toContain("pkg-researcher");
     });
 
     it("lets an explicit distrust beat a permissive global default", async () => {
@@ -418,7 +425,7 @@ describe("package-provided agents, wired through the extension", () => {
       // The type list is the assertion that bites: a seed that read the global
       // default over the saved answer would advertise an agent to the model that
       // dispatch then refuses, which is worse than never advertising it.
-      expect(typeList()).not.toContain("- pkg-researcher:");
+      expect(typeList()).not.toContain("pkg-researcher");
     });
 
     it("registers but does not yet advertise it on the very first session", async () => {
@@ -431,7 +438,7 @@ describe("package-provided agents, wired through the extension", () => {
 
       await boot(true);
       expect(getAllTypes()).toContain("pkg-researcher");
-      expect(typeList()).not.toContain("- pkg-researcher:");
+      expect(typeList()).not.toContain("pkg-researcher");
     });
   });
 

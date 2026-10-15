@@ -662,22 +662,24 @@ describe("/agents → Settings filter and height", () => {
     expect(twice.page.closedItself).toBe(true);
   });
 
-  it("Enter on the Workflow tool exposure row saves skill", async () => {
+  // `skill` is the default now, so the row cycles from it: one Enter goes to the
+  // next value in the list (`deferred`), two bring it back round to `skill`.
+  it("Enter on the Workflow tool exposure row saves deferred", async () => {
     const agents = boot();
     const { ctx } = drivePage([..."workflow tool exp", DOWN, ENTER]);
 
     await agents(ctx);
 
-    expect(readJson(globalFile())).toEqual({ workflowToolExposure: "skill" });
+    expect(readJson(globalFile())).toEqual({ workflowToolExposure: "deferred" });
   });
 
-  it("Enter twice on the Workflow tool exposure row saves deferred", async () => {
+  it("Enter three times on the Workflow tool exposure row saves skill", async () => {
     const agents = boot();
-    const { ctx } = drivePage([..."workflow tool exp", DOWN, ENTER, ENTER]);
+    const { ctx } = drivePage([..."workflow tool exp", DOWN, ENTER, ENTER, ENTER]);
 
     await agents(ctx);
 
-    expect(readJson(globalFile())).toEqual({ workflowToolExposure: "deferred" });
+    expect(readJson(globalFile())).toEqual({ workflowToolExposure: "skill" });
   });
 
   it("Enter on the Prompt cache retention row saves short and applies it to the next spawn", async () => {
