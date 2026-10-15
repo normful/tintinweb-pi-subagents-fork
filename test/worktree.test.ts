@@ -330,11 +330,24 @@ describe("worktree", () => {
       const result = await cleanupWorktree(pi, repoDir, wt, longDesc);
       expect(result.hasChanges).toBe(true);
 
-      const log = execFileSync("git", ["log", "--oneline", "-1", result.branch!], {
-        cwd: repoDir, stdio: "pipe",
-      }).toString().trim();
-      // "pi-agent: " prefix (10 chars) + 200 chars of x = 210 total max
-      expect(log.length).toBeLessThanOrEqual(220); // some slack for hash prefix
+      // `--no-color` and the subject via `--format=%s`, so this measures the
+      // truncation and nothing else. Asserting on `log --oneline` made the bound
+      // depend on the machine's git configuration rather than on the code:
+      // `color.ui = always` wraps the hash in 8 escape bytes and `core.abbrev`
+      // sets its width, so a 220-character ceiling held only where neither was set.
+      const gitLog = (args: string[]) =>
+        execFileSync("git", ["log", "--no-color", ...args], { cwd: repoDir, stdio: "pipe" }).toString();
+      const subject = gitLog(["-1", "--format=%s", result.branch!]).trim();
+      // Exact, not a ceiling: "pi-agent: " (10) + the 200 characters kept.
+      expect(subject).toBe(`pi-agent: ${"x".repeat(200)}`);
+      expect(subject.length).toBe(210);
+
+      // The oneline form still carries the abbreviated hash, whose width is
+      // repo- and config-dependent — assert the composition, not a total length.
+      const oneline = gitLog(["--oneline", "-1", result.branch!]).trim();
+      const [hash, ...rest] = oneline.split(" ");
+      expect(hash).toMatch(/^[0-9a-f]+$/);
+      expect(rest.join(" ")).toBe(subject);
 
       // Cleanup
       try { execFileSync("git", ["branch", "-D", result.branch!], { cwd: repoDir, stdio: "pipe" }); } catch { /* ignore */ }
