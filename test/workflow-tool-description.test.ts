@@ -148,7 +148,11 @@ describe("the limits it quotes", () => {
 
 describe("rendering", () => {
   it("keeps the placeholder the live agent roster is substituted into", () => {
-    expect(description).toContain("{{typeList}}");
+    // The bare name list, not the catalogue: this description is re-sent on every
+    // turn whether or not a workflow runs, and the catalogue is rendered on
+    // demand instead.
+    expect(description).toContain("{{agentNames}}");
+    expect(description).not.toContain("{{typeList}}");
   });
 
   it("leaves no unescaped template interpolation from the source literal", () => {

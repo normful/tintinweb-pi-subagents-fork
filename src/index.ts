@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, getAgentDir, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, isKeyRelease, Key, matchesKey, type ScrollViewScrollbar, type SettingItem, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { abortable } from "./abortable.js";
@@ -21,6 +21,7 @@ import { buildNewAgentFile, disableInContent, enableInContent, isEmptyStub, loca
 import { AgentManager, isTopLevelAgent } from "./agent-manager.js";
 import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, getRememberAgents, normalizeMaxTurns, resolveEffectiveMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, setRememberAgents, steerAgent } from "./agent-runner.js";
 import { rowDescription, sourceIndicator, sourceLegend } from "./agent-source-badge.js";
+import { createAgentToolDescription, getModelLabelFromConfig } from "./agent-tool-description.js";
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, getConfig, getFallbackSubagent, isDefaultsDisabled, NO_FALLBACK, registerAgents, resolveSpawnType, resolveType, setDefaultsDisabled, setFallbackSubagent } from "./agent-types.js";
 import { inChildSessionContext } from "./child-context.js";
 import { CompletionOutbox, NOTIFICATION_HOLD_MS } from "./completion-outbox.js";
@@ -258,45 +259,14 @@ function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, act
   };
 }
 
-/**
- * Format an agent's tool scope for the Agent tool description.
- *
- * This suffix describes BUILT-IN scope only — extension tools are resolved when
- * the agent runs (extensions can register asynchronously), so they cannot be
- * enumerated while the description is being built. That is why an agent with
- * `tools: "*, ext:mcp/search"` renders "*" and always has.
- *
- * Two distinctions matter, both of them capability claims the orchestrator acts on:
- *
- * - absent vs empty. `builtinToolNames: undefined` means the agent never narrowed
- *   its tools (the shipped defaults); `[]` is what `tools: none` and an `ext:`-only
- *   `tools:` parse to, and the runtime really does hand those agents no built-ins.
- *   Rendering both "*" tells the orchestrator a tool-less agent can run `bash`.
- * - empty-with-extensions vs empty-without. Zero built-ins does NOT imply zero
- *   tools: `tools: none` alongside `extensions:` still surfaces every extension
- *   tool (see test/fixtures/.pi/agents/tools-none.md, which expects three). Calling
- *   that "none" understates the agent instead of overstating it — better, but still
- *   wrong, and it would route work away from the only agent able to do it. "none"
- *   is therefore reserved for agents that genuinely can call nothing: `isolated`
- *   agents and those with `extensions: false`.
- */
-export function formatToolsSuffix(cfg: AgentConfig | undefined): string {
-  const tools = cfg?.builtinToolNames;
-  if (!tools) return "*";
-  if (tools.length === 0) {
-    // `isolated` overrides extensions to false in the runner, so both mean the
-    // agent has no extension tools either — and then it truly has nothing.
-    const noExtensionTools = cfg?.isolated === true || cfg?.extensions === false;
-    return noExtensionTools ? "none" : "no built-ins, extension tools only";
-  }
-  const isFullSet =
-    tools.length === BUILTIN_TOOL_NAMES.length
-    && BUILTIN_TOOL_NAMES.every((t) => tools.includes(t));
-  return isFullSet ? "*" : tools.join(", ");
-}
-
 /** CLI flag that runs a workflow script at session start. */
 export const WORKFLOW_FILE_FLAG = "subagents-workflow-file";
+
+/**
+ * Re-exported from where it now lives, because it was defined here and is part
+ * of this entry module's surface (the `(Tools: …)` table in the README).
+ */
+export { formatToolsSuffix } from "./agent-tool-description.js";
 
 /**
  * Re-exported from where they now live, because this is where they were
@@ -1540,39 +1510,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", () => outbox.onAgentEnd());
   pi.on("agent_settled", () => outbox.onAgentEnd());
 
-  /** Build the full type list text dynamically from available agents only. */
-  const buildTypeListText = () => {
-    const available = getAvailableTypes();
-
-    return available.map((name) => {
-      const cfg = getAgentConfig(name);
-      const modelSuffix = cfg?.model ? ` (${getModelLabelFromConfig(cfg.model)})` : "";
-      const toolsSuffix = ` (Tools: ${formatToolsSuffix(cfg)})`;
-      return `- ${name}: ${cfg?.description ?? name}${modelSuffix}${toolsSuffix}`;
-    }).join("\n");
-  };
-
-  /** First sentence of an agent description — for the compact type list. */
-  const firstSentence = (text: string): string => {
-    const match = text.match(/^.*?[.!?](?=\s|$)/s);
-    return (match ? match[0] : text).replace(/\s+/g, " ").trim();
-  };
-
-  /** Compact type list: one line per agent, first sentence only. */
-  const buildCompactTypeListText = () =>
-    getAvailableTypes().map((name) => {
-      const cfg = getAgentConfig(name);
-      return `- ${name}: ${firstSentence(cfg?.description ?? name)} (Tools: ${formatToolsSuffix(cfg)})`;
-    }).join("\n");
-
-  /** Derive a short model label from a model string. */
-  function getModelLabelFromConfig(model: string): string {
-    // Strip provider prefix (e.g. "anthropic/claude-sonnet-4-6" → "claude-sonnet-4-6")
-    const name = model.includes("/") ? model.split("/").pop()! : model;
-    // Strip trailing date suffix (e.g. "claude-haiku-4-5-20251001" → "claude-haiku-4-5")
-    return name.replace(/-\d{8}$/, "");
-  }
-
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
@@ -1619,118 +1556,25 @@ export default function (pi: ExtensionAPI) {
     schedule: Type.Optional(
       Type.String({
         description:
-          'Opt-in only — fire later instead of now. Omit to run immediately (the default, almost always correct). ' +
-          'Formats: 6-field cron ("0 0 9 * * 1" = 9am Mon), interval ("5m"/"1h"), one-shot ("+10m" or ISO). ' +
-          'Forces run_in_background; incompatible with inherit_context and resume. Returns job ID.',
+          'Opt-in only — fire later instead of now. Omit to run immediately. ' +
+          'Formats: 6-field cron ("0 0 9 * * 1"), interval ("5m"), one-shot ("+10m" or ISO). ' +
+          'Forces background; not with inherit_context or resume.',
       }),
     ),
   };
   const scheduleParam: Partial<typeof scheduleParamShape> =
     isSchedulingEnabled() ? scheduleParamShape : {};
 
-  const scheduleGuideline = isSchedulingEnabled()
-    ? `\n- Use \`schedule\` only when the user explicitly asked for scheduled / recurring / delayed execution (e.g. "every Monday", "in an hour"). Don't auto-schedule from vague intent like "monitor X" — run once now or ask.`
-    : "";
-
-  // Same trade as scheduleParam/scheduleGuideline above: `isolationParam` drops
-  // the field from the schema when the project set `worktreeIsolation: false`,
-  // so the prose has to go with it. Left in, it would teach the model to pass a
-  // parameter that isn't declared — accepted (TypeBox sets no
-  // `additionalProperties: false`) and then silently dropped by the resolver.
-  // With no per-result note by design, the model would have every reason to go
-  // on reporting a `pi-agent-*` branch that was never created.
-  const isolationGuideline = isWorktreeIsolationEnabled()
-    ? `\n- Use isolation: "worktree" to give the agent its own git worktree (safe parallel file modifications); leave it unset, or pass "off", for none. The worktree is removed when the agent finishes; if it made changes, they are committed to a branch and the branch is named in the result.`
-    : "";
-
-  const isolationCompactGuideline = isWorktreeIsolationEnabled()
-    ? `\n- isolation: "worktree" gives the agent its own git worktree (removed on completion); changes land on a branch named in the result.`
-    : "";
-
-  // Compact Agent tool description (#91, `toolDescriptionMode: "compact"`) —
-  // the same load-bearing facts as the full version at ~70% fewer characters
-  // (1.3 KB against 4.2 KB with the shipped agents), for small/local models.
-  // Per-option details live in the param descriptions.
-  const compactAgentToolDescription = `Launch an autonomous agent for complex, multi-step tasks. Agent types:
-${buildCompactTypeListText()}
-
-Custom agents: .pi/agents/<name>.md (project) or ${getAgentDir()}/agents/<name>.md (global).
-
-Notes:
-- description: 3-5 words. Prompts must be self-contained — the agent has not seen this conversation.
-- Parallel work: one message, multiple Agent calls — they run concurrently.
-- Background by default; you'll be notified when one completes. Pass run_in_background: false only when your next action depends on the result, and never fabricate or predict a pending agent's results.
-- The result is not shown to the user — summarize it, and verify claimed code changes before reporting work done.
-- resume continues a previous agent by ID; steer_subagent messages a running one.${isolationCompactGuideline}`;
-
-  const fullAgentToolDescription = `Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.
-
-Available agent types and the tools they have access to:
-${buildTypeListText()}
-
-Custom agents can be defined in .pi/agents/<name>.md (project) or ${getAgentDir()}/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones; a file named after a default agent overrides it.
-
-## Usage notes
-
-- If the target is already known, use a direct tool — \`read\`, \`grep\`, \`find\`. Reserve this tool for open-ended work, or for a task that matches an agent type's description, including one that says to use it without being asked.
-- Send independent work as multiple Agent calls in one message so they run concurrently; "in parallel" means exactly this. Never repeat work you delegated.
-- Agents run in the background by default and you are notified on completion — do not sleep, poll, or predict results before that notification arrives. Pass \`run_in_background: false\` only when your next action needs the result and nothing else could usefully happen meanwhile.
-- The result is not shown to the user — summarize it. An agent's summary is intent, not outcome: when it writes code, verify the actual changes before reporting the work as done. Say whether you want code written or research only; the agent cannot infer your intent.
-- The prompt must be self-contained — a new call has no memory of prior runs, so include the file paths, line numbers and constraints it needs. \`resume\` continues an earlier agent by ID, \`steer_subagent\` messages a running one, \`inherit_context\` forks this conversation into it, and \`model\` / \`thinking\` override its defaults.${isolationGuideline}${scheduleGuideline}
-
-## Writing the prompt
-
-Brief the agent like a smart colleague who just walked into the room — it has not seen this conversation, does not know what you tried or why the task matters. State the goal, what you already learned or ruled out, and enough context to make judgment calls rather than follow a narrow instruction. Hand over the exact command for a lookup and the question for an investigation — prescribed steps are dead weight when the premise is wrong. If you need a short answer, say so.
-
-**Never delegate understanding.** "Based on your findings, implement it" pushes synthesis onto the agent. Name the file, the line, and what specifically to change; terse command-style prompts produce shallow, generic work.`;
-
-  // `toolDescriptionMode: "custom"` — user-authored description with live
-  // dynamic parts. Project file wins over global; missing/empty falls back to
-  // "full" (a stale fallback beats a blank tool description). Only the prose
-  // is customizable — the parameter schema stays code-owned.
-  const renderToolDescriptionTemplate = (template: string): string => {
-    const vars: Record<string, () => string> = {
-      typeList: buildTypeListText,
-      compactTypeList: buildCompactTypeListText,
-      agentDir: getAgentDir,
-      isolationGuideline: () => isolationGuideline,
-      scheduleGuideline: () => scheduleGuideline,
-    };
-    // Replacement callback (not a string) — agent descriptions may contain `$&` etc.
-    return template.replace(/\{\{(\w+)\}\}/g, (raw, name: string) => {
-      if (vars[name]) return vars[name]();
-      console.warn(`[pi-subagents] agent-tool-description.md: unknown placeholder ${raw} left as-is`);
-      return raw;
-    });
-  };
-
-  const loadCustomToolDescription = (): string | undefined => {
-    for (const path of [
-      join(process.cwd(), ".pi", "agent-tool-description.md"),
-      join(getAgentDir(), "agent-tool-description.md"),
-    ]) {
-      try {
-        if (!existsSync(path)) continue;
-        const text = readFileSync(path, "utf-8").trim();
-        if (text) return renderToolDescriptionTemplate(text);
-        console.warn(`[pi-subagents] ${path} is empty — ignoring`);
-      } catch (err) {
-        console.warn(`[pi-subagents] failed to read ${path}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    return undefined;
-  };
-
-  const agentToolDescription = (() => {
-    const mode = getToolDescriptionMode();
-    if (mode === "compact") return compactAgentToolDescription;
-    if (mode === "custom") {
-      const custom = loadCustomToolDescription();
-      if (custom) return custom;
-      console.warn('[pi-subagents] toolDescriptionMode is "custom" but no agent-tool-description.md found — using "full"');
-    }
-    return fullAgentToolDescription;
-  })();
+  // The prose lives in its own module: this factory is the longest file in the
+  // extension, and reviewing a trim means reading it beside the roster renderer
+  // it depends on. Both gates are read once here, like the schema gates above,
+  // and `renderTemplate` is shared with the workflow tool's description.
+  const { agentToolDescription, renderTemplate, renderCatalogue } = createAgentToolDescription({
+    roster: { availableTypes: getAvailableTypes, agentConfig: getAgentConfig },
+    mode: getToolDescriptionMode(),
+    schedulingEnabled: isSchedulingEnabled(),
+    worktreeIsolationEnabled: isWorktreeIsolationEnabled(),
+  });
 
   // Held rather than registered inline: the mention clone reuses this exact
   // definition, so the agent it starts is an ordinary top-level spawn instead
@@ -1753,11 +1597,14 @@ Brief the agent like a smart colleague who just walked into the room — it has 
       name: Type.Optional(
         Type.String({
           description:
-            'Optional memorable name for this agent (e.g. "auth-audit"), addressable as `@name` at the prompt and by steer_subagent / get_subagent_result. Letters, digits, `_` and `-`; omit for one-off work, where the type-derived handle suffices.',
+            'Optional name for this agent (e.g. "auth-audit"), addressable as `@name` and by steer_subagent / get_subagent_result. Letters, digits, `_` and `-`.',
         }),
       ),
       subagent_type: Type.String({
-        description: `The type of specialized agent to use. Available: ${getAvailableTypes().join(", ")}.`,
+        // The names are in this tool's description; what each one does is
+        // `list_agents`. Embedding the roster here made it the third copy of
+        // one list.
+        description: "The type of specialized agent to use. Named in this tool's description; call list_agents for what each one does.",
       }),
       model: Type.Optional(
         Type.String({
@@ -1778,12 +1625,12 @@ Brief the agent like a smart colleague who just walked into the room — it has 
       ),
       run_in_background: Type.Optional(
         Type.Boolean({
-          description: "Defaults to true — runs detached, returning an ID, and notifies you on completion. Set false only when your very next action depends on the result: the call then blocks and returns the agent's full output inline.",
+          description: "Defaults to true: runs detached, returns an ID, notifies you on completion. Set false to block and get the full result inline.",
         }),
       ),
       resume: Type.Optional(
         Type.String({
-          description: "Agent ID to resume. Continues from prior context, detached like any other spawn; pass run_in_background: false to block on the result. The resumed run gets a fresh max_turns budget. An agent can only be resumed once its current run has finished — use steer_subagent to reach one mid-run.",
+          description: "Agent ID to resume. Continues from prior context, detached; the resumed run gets a fresh max_turns budget and must have finished — use steer_subagent to reach a running one.",
         }),
       ),
       isolated: Type.Optional(
@@ -2523,6 +2370,29 @@ Brief the agent like a smart colleague who just walked into the room — it has 
   const registeredAgentTool = withUsageReporting(agentTool);
   pi.registerTool(registeredAgentTool);
 
+  // ---- list_agents tool ----
+
+  // The routing information the every-turn roster gave up. It names the agents
+  // and stops; what each one does, its model and its tool scope is ~2.5 KB with
+  // the shipped agents (7.5 KB uncapped) and was rendered into the tool spec
+  // twice — so it is paid for only when the choice of type is actually in
+  // question. Registered unconditionally, deliberately: `toolDescriptionMode`
+  // only picks the Agent tool's prose, and gating this on it would leave
+  // `compact` with no way to recover what its roster does not say.
+  //
+  // No usage reporting: this call spends no model tokens, so a spend footer on
+  // its result would be noise. Registered as a plain tool for that reason.
+  const listAgentsTool = defineTool({
+    name: SUBAGENT_TOOL_NAMES.LIST_AGENTS,
+    label: "List Agents",
+    description:
+      "List every agent type pi can spawn, with what each one does, its model and the tools it can call. Call this before choosing a `subagent_type` whenever the right type is not obvious from the names in the Agent tool's description.",
+    promptSnippet: "List the available agent types and what each one does",
+    parameters: Type.Object({}),
+    execute: async () => textResult(renderCatalogue()),
+  });
+  pi.registerTool(listAgentsTool);
+
   // ---- Workflow tool ----
 
   /**
@@ -2627,7 +2497,7 @@ Brief the agent like a smart colleague who just walked into the room — it has 
   const workflowTool = defineTool({
     name: SUBAGENT_TOOL_NAMES.WORKFLOW,
     label: "SubagentWorkflow",
-    description: renderToolDescriptionTemplate(fullWorkflowToolDescription),
+    description: renderTemplate(fullWorkflowToolDescription),
     promptSnippet: "Run a deterministic script that orchestrates many subagents",
     promptGuidelines: [
       "Use SubagentWorkflow only when the user opted into multi-agent orchestration, and only when the number of agents depends on something discovered at runtime, work flows through stages, or findings need independent verification. Use Agent for one delegated task, or a few you can name up front.",

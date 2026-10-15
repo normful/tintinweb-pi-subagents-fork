@@ -425,7 +425,9 @@ A few rules the examples don't make obvious:
 - `exclude_extensions:` is **not a sandbox**: excluded extensions' factory code still executes once during loading. Exclusion suppresses their tools and their bound lifecycle hooks (`pi.on` handlers like `session_start` only fire for extensions bound to the session), but not other load-time side effects — a factory that subscribes directly to the shared `pi.events` bus stays live. Don't rely on it to contain an untrusted extension.
 - Array and string forms are equivalent: `[a, b]` == `"a, b"`.
 
-**How an agent's scope is advertised.** The Agent tool description lists every available agent with a `(Tools: …)` suffix, and that suffix is what the orchestrator reads when deciding where to route work. It describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the description is built:
+#### How an agent's scope is advertised
+
+The agent **catalogue** is what the orchestrator reads when deciding where to route work: one row per available agent, each with a `(Tools: …)` suffix. It is not carried in the every-turn tool description — 18 agents of rows cost ~7.5 KB per turn, rendered into the tool spec twice — so the description names the agents and the catalogue is built on demand: the [`list_agents`](#list_agents) tool returns it, and a custom tool description can interpolate it via [`{{typeList}}`](#tool-description). The suffix describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the catalogue is built:
 
 | `tools:` | suffix |
 |---|---|
@@ -550,6 +552,14 @@ Send a steering message to a running agent. The message interrupts after the cur
 |-----------|------|----------|-------------|
 | `agent_id` | string | yes | Agent ID to steer |
 | `message` | string | yes | Message to inject into agent conversation |
+
+### `list_agents`
+
+List every agent type pi can spawn, with what each one does, its model and the tool scope it runs with — the [catalogue](#how-an-agents-scope-is-advertised) the every-turn tool descriptions name but no longer carry. Takes no parameters, is registered in every `toolDescriptionMode`, and is not inherited by subagents. Returns one row per available agent:
+
+```text
+- Explore: Fast read-only search agent for locating code. (claude-haiku-4-5) (Tools: read, bash, grep, find, ls)
+```
 
 ## Commands
 
@@ -766,18 +776,18 @@ Leaving it unset is not quite the same as `true`. Unset means *auto*: on, unless
 
 The match is on the exact tool names `Workflow` (Claude Code's) and `SubagentWorkflow` (ours), never a substring, so a `list_workflows` or `github_workflow_run` from some CI integration does not silently take the feature down. The check runs at `session_start` and nowhere earlier, because `getAllTools` throws during extension loading and load order means a check at registration time could not see an extension that has not loaded yet — so the tool is registered first and withdrawn from the active set through `setActiveTools`, which rebuilds the system prompt before any turn runs. When the other extension took the `SubagentWorkflow` name itself, pi's first-registration-wins rule already dropped ours, so there is nothing to withdraw and only the menu and the CLI flag come down.
 
-**Tool description** (`toolDescriptionMode`, default `"full"`): which Agent tool description the LLM sees. `"full"` is the rich Claude Code-style prompt (~4.2 KB of description with the default agents, growing with each custom agent — the type list embeds full agent descriptions); `"compact"` is ~70% smaller (1.3 KB) — one-line agent type list, terse usage notes — for small/local models where tool-spec tokens are expensive. Per-option details stay in the parameter descriptions in every mode (the parameter schema is never customizable). Applies on the next pi session.
+**Tool description** (`toolDescriptionMode`, default `"full"`): which Agent tool description the LLM sees. Both modes name every available agent and neither embeds an agent's description, model or tool scope — that is the [catalogue](#how-an-agents-scope-is-advertised), rendered on demand. `"full"` is the rich Claude Code-style prompt (~2.4 KB with the three shipped defaults, growing ~18 characters per added agent, since only names are listed); `"compact"` is ~1.0 KB — terse usage notes and no usage headings — for small/local models where tool-spec tokens are expensive. Per-option details stay in the parameter descriptions in every mode (the parameter schema is never customizable). Applies on the next pi session.
 
 `"custom"` registers your own description from `<cwd>/.pi/agent-tool-description.md` (project) or `<agentDir>/agent-tool-description.md` (global; project wins). The file is read once at tool registration, so edits also apply on the next pi session. Dynamic parts stay live via placeholders — a static agent list would go stale the moment you add a custom agent:
 
 ```markdown
 Launch an autonomous agent. Available types:
-{{typeList}}
+{{agentNames}}
 
 Custom agents live in .pi/agents/ or {{agentDir}}/agents/.
 ```
 
-Placeholders: `{{typeList}}` (full per-agent descriptions), `{{compactTypeList}}` (first sentence each), `{{agentDir}}`, `{{isolationGuideline}}` and `{{scheduleGuideline}}` (each expands with its own leading newline + `- ` bullet when the matching feature is on — place them directly after your last rule line; empty when [worktree isolation](#turning-worktrees-off) / scheduling is off). Unknown placeholders are left verbatim with a stderr warning; a missing or empty file falls back to `"full"` with a warning. Note the usual trust umbrella: a project-level file shapes the orchestrator's prompt, same as project agents and extensions do.
+Placeholders: `{{agentNames}}` (the bare comma-separated name list the built-in descriptions carry), `{{typeList}}` (the full catalogue — what [`list_agents`](#list_agents) returns: one line per agent, with its description capped at 80 characters, its model and its `(Tools: …)` scope), `{{compactTypeList}}` (first sentence of each agent's description), `{{agentDir}}`, `{{isolationGuideline}}` and `{{scheduleGuideline}}` (each expands with its own leading newline + `- ` bullet when the matching feature is on — place them directly after your last rule line; empty when [worktree isolation](#turning-worktrees-off) / scheduling is off). Unknown placeholders are left verbatim with a stderr warning; a missing or empty file falls back to `"full"` with a warning. Note the usual trust umbrella: a project-level file shapes the orchestrator's prompt, same as project agents and extensions do.
 
 **Starting point:** copy [`examples/agent-tool-description.md`](examples/agent-tool-description.md) — it reproduces the default full description exactly (a CI test keeps it in sync), so you can trim from a known-good baseline instead of writing from scratch.
 
@@ -1024,6 +1034,8 @@ docs/                 # Long-form guides (shipped to npm; README links out to th
 examples/
   workflows/          # Runnable examples, executed by test/workflow-examples.test.ts
   agent-tool-description.md
+skills/
+  writing-subagent-workflows/  # Packaged skill: the SubagentWorkflow authoring reference
 test/                 # vitest suite; e2e/ and perf/ subdirectories
 src/
   index.ts            # Extension entry: tool/command registration, /agents menu, rendering
@@ -1050,6 +1062,7 @@ src/
 
   # Invocation surface
   invocation-config.ts # Shared tool-parameter schemas (isolation, join, thinking, ...)
+  agent-tool-description.ts # Model-facing Agent tool description, agent roster and catalogue
   model-resolver.ts   # Model resolution: exact provider/modelId with fuzzy fallback
   enabled-models.ts   # Read pi's enabledModels settings (project over global)
   model-scope.ts      # scopeModels allowlist policy, shared by top-level and nested tools

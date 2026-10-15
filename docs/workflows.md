@@ -324,6 +324,8 @@ A run's concurrency limit is its own, independent of the session's `maxConcurren
 
 These orchestration patterns — adversarial verification, judge panels, loop-until-dry — are not spelled out in `SubagentWorkflow`'s description any more: the tool spec carries only the scripting contract, because it is re-sent on every turn whether or not a workflow runs. So these are **what to ask for**, and what the resulting script looks like so you can recognize it in the file. Ask in the pattern's own terms; the model writes it from your wording.
 
+The DSL itself — every `agent()` option and its combination rules, the determinism limits, the caps, and journal-backed `resumeFromRunId` — is documented in the `writing-subagent-workflows` skill this package ships. It loads on demand, so it costs nothing until a workflow is actually being written; the tool description names it and keeps every contract the runtime enforces inline.
+
 ### Fan out over a list you don't have yet
 
 > *"audit every route file under src/routes for missing auth checks"*
