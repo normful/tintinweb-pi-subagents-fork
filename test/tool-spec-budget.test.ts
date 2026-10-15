@@ -73,7 +73,7 @@ describe("per-turn tool-spec budget", () => {
       // The roster adds ~18 characters per agent to the two descriptions that
       // carry it; these ceilings hold a couple dozen more shipped agents.
       expect(spec("Agent").description.length).toBeLessThanOrEqual(3000);
-      expect(spec("SubagentWorkflow").description.length).toBeLessThanOrEqual(5500);
+      expect(spec("SubagentWorkflow").description.length).toBeLessThanOrEqual(4400);
       expect(spec("list_agents").description.length).toBeLessThanOrEqual(400);
       expect(spec("list_agents").snippet.length).toBeLessThanOrEqual(80);
       expect(spec("get_subagent_result").description.length).toBeLessThanOrEqual(300);
@@ -87,9 +87,9 @@ describe("per-turn tool-spec budget", () => {
     const booted = await boot();
     try {
       const total = [...booted.tools.values()].reduce((sum, t) => sum + specOf(t).total, 0);
-      // ~13.1 KB with the three shipped defaults. The pre-refactor spec was
+      // ~12.2 KB with the three shipped defaults. The pre-refactor spec was
       // 31,945 characters with 18 agents, most of it the catalogue, twice.
-      expect(total).toBeLessThanOrEqual(15000);
+      expect(total).toBeLessThanOrEqual(13800);
     } finally {
       await booted.restore();
     }

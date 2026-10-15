@@ -6,7 +6,8 @@
  * mostly duplicated examples and justification for advice that does not need
  * justifying at call time. What survives is what the runtime enforces or the
  * model cannot infer: the opt-in rule, the `meta` shape, the `agent()` option
- * set and its mutual exclusions, the hooks, the caps, and one canonical example.
+ * set and its mutual exclusions, the other globals, the caps, and one canonical
+ * shape.
  *
  * The orchestration patterns (adversarial verification, judge panels,
  * loop-until-dry, …) are deliberately not listed here any more: they are
@@ -43,54 +44,51 @@
  * `agent()` option set, the `resume` exclusions, the effort levels, the caps,
  * and that every example here uses options the runtime actually accepts.
  *
- * The floor the trim cannot go below: the opt-in gate, the `meta` literal, one
- * `agent(prompt, {...})` literal for the test's example parser to check, all
- * nine option names in one run-on line per `resume`'s exclusion sentence, the
- * three cap figures, and one canonical pattern carrying `${f.title}`.
+ * The floor this cannot go below, and why each piece is load-bearing:
+ *   - the opt-in gate — a policy the runtime cannot enforce for the user;
+ *   - the pure-literal `meta` shape — the runtime rejects a non-literal;
+ *   - one `agent(prompt, {...})` options literal — the test's only source of
+ *     checkable examples. The canonical shape is written with brace-free option
+ *     objects on purpose: the test's example parser uses `[^{}]*`, so an
+ *     options object containing a `${…}` interpolation is invisible to it.
+ *   - all nine option names, with `resume`'s six exclusions on ONE physical
+ *     line (the test matches `opts\.resume[^\n]*`), so that bullet is one long
+ *     line no matter how the rest of the prose is wrapped;
+ *   - the effort parenthetical verbatim, and the three cap figures;
+ *   - the literal `${f.title}` — the sentinel for unescaped source templating.
  */
-export const fullWorkflowToolDescription = `Execute a workflow script that orchestrates multiple subagents deterministically. Returns a task ID immediately; the run continues in the background and notifies you on completion. Watch progress in /agents → Workflows.
+export const fullWorkflowToolDescription = `Execute a workflow script that orchestrates multiple subagents deterministically. Returns a task ID immediately; the run continues in the background and notifies you on completion (/agents → Workflows).
 
-ONLY call this when the user explicitly opted into multi-agent orchestration — in their own words ("use a workflow", "fan out agents", "orchestrate this with subagents"), via a skill or slash command that says to, or by naming a saved workflow. Workflows can spawn dozens of agents and cost a lot of tokens, so the user must ask for that scale. Otherwise use the Agent tool, or say what a workflow could do and roughly what it would cost, and ask.
+ONLY call this when the user explicitly opted into multi-agent orchestration — in their own words ("use a workflow", "fan out agents"), via a skill or slash command that says to, or by naming a saved workflow. A workflow can spawn dozens of agents and cost a lot of tokens, so the user must ask for that scale. Otherwise use the Agent tool, or say what a workflow could do and what it would cost, and ask.
 
-Pass the script inline via \`script\` — do not Write it to a file first. Every invocation persists its script under the session directory and returns the path, so iterating means editing that file and re-invoking with \`{scriptPath: "<path>"}\`. A script you will re-run belongs in \`.pi/workflows/<name>.js\` (or \`.agents/workflows/\`, the agent dir, or a directory an installed pi package declares), called with \`name: "<name>"\`.
+Pass the script inline via \`script\`, as a file via \`scriptPath\` (wins over \`script\`), or as a saved \`name\` (lowest precedence; read from \`.pi/workflows/<name>.js\`, \`.agents/workflows/\`, the agent dir, or an installed pi package). Every invocation persists its script under the session directory and returns its path — edit that file and re-invoke with \`scriptPath\` to iterate.
 
-Every script must begin with \`export const meta = {...}\` — a PURE LITERAL, with no variables, function calls, spreads or template interpolation:
+Every script must begin with \`export const meta = {...}\` — a PURE LITERAL, with no variables, calls, spreads or interpolation:
   export const meta = {
-    name: 'find-flaky-tests',
-    description: 'Find flaky tests and propose fixes',   // one-line, shown in permission dialog
-    phases: [{ title: 'Scan', detail: 'grep test logs for retries' }],   // one entry per phase() call
+    name: 'find-flaky-tests',         // required, non-empty
+    description: 'Find flaky tests',  // required; shown on the run's card
+    phases: [{ title: 'Scan' }],      // optional; one entry per phase() call
   }
-  // body: agent()/parallel()/pipeline()/phase()/log()
-  phase('Scan')
-  const flaky = await agent('grep CI logs for retry markers', {schema: FLAKY_SCHEMA})
-  ...
 
-Required: \`name\`, \`description\`. Optional: \`whenToUse\`, \`phases\`, \`model\` per phase entry; phase titles must match the \`phase()\` calls exactly.
-
-Script body hooks:
-- agent(prompt, opts?): Promise<any> — spawn a subagent; returns its final text, or the validated object with opts.schema. opts.label is the UI label; opts.phase assigns a progress group (needed inside pipeline()/parallel() stages, where the global phase() races); opts.model overrides the model; opts.effort overrides the reasoning effort for this agent call ('minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'), defaulting to the agent's level then the parent's; opts.isolation: 'worktree' gives it a git worktree (removed on settle, changes kept on a branch); opts.gate: '<command>' verifies the child by running a command, failing on a non-zero exit; opts.agentType picks a registered type instead of the default; opts.resume: '<label>' continues the child from that label, and excludes opts.agentType, opts.model, opts.isolation, opts.effort, opts.schema and opts.gate, which the resumed child keeps from its first run. Unknown options throw. Types for opts.agentType:
+Body globals:
+- agent(prompt, opts?): Promise<any> — spawn a subagent; returns its final text, or the object validated against opts.schema. opts.label names it in the UI and is the handle opts.resume addresses; opts.phase sets a progress group (use it inside pipeline()/parallel() stages, where the ambient phase() races); opts.model and opts.effort override the model and the reasoning effort for this agent call ('minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'), defaulting to the agent's level then the parent's; opts.isolation: 'worktree' gives it a git worktree (removed on settle, changes kept on a branch); opts.gate: '<command>' fails the child on a non-zero exit; opts.agentType picks a registered type over the default; opts.resume: '<label>' continues that child, and excludes opts.agentType, opts.model, opts.isolation, opts.effort, opts.schema and opts.gate, which it keeps from its first run. Unknown options throw. Types for opts.agentType:
 {{agentNames}}
-- pipeline(items, ...stages): run each item through all stages independently, with no barrier between them — wall-clock is the slowest chain; a throwing stage drops its item to \`null\`. Prefer this.
-- parallel(thunks): run thunks concurrently and wait for all of them; a throwing thunk resolves to \`null\` (filter out with \`.filter(Boolean)\`), except a fatal run error, which propagates.
-- log(message), phase(title): a progress line; a progress group for the agent() calls that follow.
-- args: the object passed as SubagentWorkflow's \`args\`, verbatim — pass JSON values, never a JSON-encoded string.
-- budget: {total, spent(), remaining()} — total is always null (pi has no token target), spent() is this run's output tokens, remaining() is Infinity.
-- workflow(nameOrRef, args?): run another workflow inline, sharing caps, agent counter, abort signal and budget; nesting is one level only.
+- pipeline(items, ...stages): no barrier — each item walks its own chain, so wall-clock is the slowest one; a throwing stage drops its item to \`null\`. Default to this.
+- parallel(thunks): a barrier that waits for all; a throwing thunk resolves to \`null\` (filter with \`.filter(Boolean)\`), except a fatal run error, which propagates.
+- log(message), phase(title): a progress line for the human; a progress group for the agent() calls that follow.
+- args: the object passed as \`args\`, verbatim — JSON values only, never a JSON-encoded string.
+- budget: {total, spent(), remaining()} — total is always null, spent() is this run's output tokens, remaining() is Infinity.
+- workflow(nameOrRef, args?): run another workflow inline, sharing caps, counter, abort signal and budget; one level of nesting only.
 
-Scripts are plain JavaScript, not TypeScript, and run in an async context. No \`Date.now()\`, \`Math.random()\`, argless \`new Date()\`, \`eval\`, \`Function(...)\`, filesystem or Node.js APIs — pass timestamps in via \`args\` and vary randomness by index.
+Plain JavaScript, not TypeScript, in an async context. No \`Date.now()\`, \`Math.random()\`, argless \`new Date()\`, \`eval\`, \`Function(...)\`, filesystem or Node.js APIs. Caps: concurrency min(16, available CPUs - 2), a lifetime capped at 1000 agents, at most 4096 items per pipeline()/parallel() call.
 
-Caps: concurrency min(16, available CPUs - 2) per workflow; a run's lifetime capped at 1000 agents; one pipeline()/parallel() call accepts at most 4096 items.
-
-Canonical pattern:
-  const results = await pipeline(
-    [{key: 'bugs', prompt: '...'}, {key: 'perf', prompt: '...'}],
-    d => agent(d.prompt, {label: \`review:\${d.key}\`, phase: 'Review', schema: FINDINGS_SCHEMA}),
+Canonical shape:
+  const dims = ['bugs', 'perf']
+  const results = await pipeline(dims,
+    d => agent(\`Review for \${d}\`, {label: 'review', phase: 'Review', schema: FINDINGS}),
     review => parallel(review.findings.map(f => () =>
-      agent(\`Adversarially verify: \${f.title}\`, {label: \`verify:\${f.file}\`, phase: 'Verify'})
-        .then(v => ({...f, verdict: v}))
-    ))
-  )
-  return { confirmed: results.flat().filter(Boolean).filter(f => f.verdict?.isReal) }
+      agent(\`REFUTE \${f.title}\`, {label: 'verify', phase: 'Verify'}))))
+  return results.filter(Boolean)
 
 Scale the fan-out to the ask. For determinism, \`resumeFromRunId\` replay and the orchestration recipes, see the \`writing-subagent-workflows\` skill.
 `;
