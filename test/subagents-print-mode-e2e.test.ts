@@ -304,6 +304,21 @@ const VITEST_SLACK = 30_000;
 const LIVE_VITEST_TIMEOUT = LIVE_TIMEOUT + VITEST_SLACK;
 const SELF_SMOKE_VITEST_TIMEOUT = SELF_SMOKE_TIMEOUT + VITEST_SLACK;
 
+// REQUIRES THE SHIPPED DEFAULT AGENTS. Two assertions below — `Explore
+// subagent_type` and step 3 of `SELF-SMOKE` — require `Explore` to be a
+// registered agent type. Live mode runs with `isolateGlobals: false` on purpose
+// (so real auth and config resolve), which means the extension builds its agent
+// registry from the developer's real `~/.pi/agent/subagents.json`. A
+// `disableDefaultAgents: true` there removes `general-purpose`, `Explore` and
+// `Plan`, so `Explore` is not registered, the spawn falls back to another type,
+// and both tests fail on a healthy tree.
+//
+// Recognise the symptom before reading it as a regression: the model reports
+// that the type "wasn't a registered type", and
+// `calls.some(c => c.subagent_type === "explore")` is false even though the
+// model passed the name through correctly. Enable the defaults, or assert on a
+// type the active config actually registers, before trusting a failure here.
+
 describe.runIf(LIVE)("subagents print-mode e2e (live LLM, opt-in)", () => {
   let run: PrintModeRun | undefined;
   afterEach(async () => {
