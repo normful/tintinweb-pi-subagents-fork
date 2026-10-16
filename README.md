@@ -328,6 +328,8 @@ Default agents can be **ejected** (`/agents` → select agent → Eject) to expo
 
 Define custom agent types by creating `.md` files. The frontmatter `name:` is the `subagent_type` and dispatch identity, falling back to the filename when absent; `display_name` only changes the UI label. Claiming a default agent's name overrides it.
 
+**Authoring reference:** [`skills/writing-subagents/SKILL.md`](skills/writing-subagents/SKILL.md) — every frontmatter key this extension parses, its coercion rules, and the keys another runtime's dialect uses that this one ignores in silence.
+
 Agents are discovered from four locations (higher priority wins):
 
 | Priority | Location | Scope |
@@ -1265,6 +1267,7 @@ examples/
   agent-tool-description.md
 skills/
   workflow-authoring/         # Packaged skill: the SubagentWorkflow authoring reference
+  writing-subagents/           # Packaged skill: the agent definition file reference
 test/                 # vitest suite; e2e/ and perf/ subdirectories
 src/
   index.ts            # Extension entry: tool/command registration, /agents menu, rendering
