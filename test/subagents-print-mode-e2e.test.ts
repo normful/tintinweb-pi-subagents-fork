@@ -16,7 +16,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { getAvailableTypes } from "../src/agent-types.js";
+import subagentsExtension from "../src/index.js";
+import { makePi } from "./helpers/boot-extension.js";
 import {
   agentCall,
   agentToolCalls,
@@ -304,23 +307,45 @@ const VITEST_SLACK = 30_000;
 const LIVE_VITEST_TIMEOUT = LIVE_TIMEOUT + VITEST_SLACK;
 const SELF_SMOKE_VITEST_TIMEOUT = SELF_SMOKE_TIMEOUT + VITEST_SLACK;
 
-// REQUIRES THE SHIPPED DEFAULT AGENTS. Two assertions below — `Explore
-// subagent_type` and step 3 of `SELF-SMOKE` — require `Explore` to be a
-// registered agent type. Live mode runs with `isolateGlobals: false` on purpose
-// (so real auth and config resolve), which means the extension builds its agent
-// registry from the developer's real `~/.pi/agent/subagents.json`. A
-// `disableDefaultAgents: true` there removes `general-purpose`, `Explore` and
-// `Plan`, so `Explore` is not registered, the spawn falls back to another type,
-// and both tests fail on a healthy tree.
+// The two non-default-type assertions below ask for a type the ACTIVE registry
+// really has, chosen in `beforeAll`, rather than hardcoding `Explore`. Live mode
+// runs with `isolateGlobals: false` on purpose (so real auth and config resolve),
+// so the extension builds its registry from the developer's own
+// `~/.pi/agent/subagents.json` — and a `disableDefaultAgents: true` there removes
+// `general-purpose`, `Explore` and `Plan`. Hardcoding `Explore` made both tests
+// fail on a healthy tree, and report it as a dispatch failure; substituting a type
+// that exists keeps them testing what they are named for on any config.
 //
-// Recognise the symptom before reading it as a regression: the model reports
-// that the type "wasn't a registered type", and
-// `calls.some(c => c.subagent_type === "explore")` is false even though the
-// model passed the name through correctly. Enable the defaults, or assert on a
-// type the active config actually registers, before trusting a failure here.
+// Recognise the old symptom in case it reappears: the model reports that the type
+// "wasn't a registered type", while `calls.some(...)` finds no matching
+// `subagent_type` — even though the model passed the name through correctly.
 
 describe.runIf(LIVE)("subagents print-mode e2e (live LLM, opt-in)", () => {
   let run: PrintModeRun | undefined;
+
+  /**
+   * The non-default type the two dispatch assertions steer the model toward.
+   *
+   * `Explore` is a shipped default, so it exists only while
+   * `disableDefaultAgents` is unset — and live mode does not isolate globals, so
+   * the developer's own settings decide. Resolved from the real registry here
+   * rather than hardcoded, so the tests do not fail on a healthy tree for a
+   * config reason. See the note above the constants.
+   */
+  let nonDefaultType = "Explore";
+  beforeAll(async () => {
+    const { pi, lifecycle } = makePi();
+    subagentsExtension(pi);
+    try {
+      const types = getAvailableTypes();
+      nonDefaultType = types.some((t) => t.toLowerCase() === "explore")
+        ? "Explore"
+        : (types.find((t) => t.toLowerCase() !== "general-purpose") ?? "Explore");
+    } finally {
+      await lifecycle.get("session_shutdown")?.({}, { hasUI: false, ui: {} });
+    }
+  });
+
   afterEach(async () => {
     await run?.dispose();
     run = undefined;
@@ -367,18 +392,20 @@ describe.runIf(LIVE)("subagents print-mode e2e (live LLM, opt-in)", () => {
   );
 
   it(
-    "Explore subagent_type — model dispatches a non-default agent type",
+    "non-default subagent_type — model dispatches a type other than the default",
     async () => {
       run = await runPrintMode({
         prompt:
-          "Use the Agent tool with subagent_type 'Explore' to look at the current working " +
+          `Use the Agent tool with subagent_type '${nonDefaultType}' to look at the current working ` +
           "directory and report a one-line summary of what's there.",
         timeoutMs: LIVE_TIMEOUT,
       });
       const calls = agentToolCalls(run.parentSession);
       // The non-default type was actually selected (case-insensitive per README).
       expect(
-        calls.some((c) => String(c.subagent_type ?? "").toLowerCase() === "explore"),
+        calls.some(
+          (c) => String(c.subagent_type ?? "").toLowerCase() === nonDefaultType.toLowerCase(),
+        ),
       ).toBe(true);
       expect(run.responseText.length).toBeGreaterThan(0);
     },
@@ -400,8 +427,8 @@ describe.runIf(LIVE)("subagents print-mode e2e (live LLM, opt-in)", () => {
           "2) BACKGROUND: spawn a general-purpose subagent with run_in_background: true whose only",
           "   task is to reply with the exact token BG_OK. After it finishes, call get_subagent_result",
           "   to retrieve its output. Confirm you got BG_OK.",
-          "3) EXPLORE: spawn a subagent with subagent_type 'Explore' to summarize the current",
-          "   working directory in one line.",
+          `3) EXPLORE: spawn a subagent with subagent_type '${nonDefaultType}' to summarize the`,
+          "   current working directory in one line.",
           "Finish with: 'SELF-SMOKE COMPLETE' followed by the PASS/FAIL lines.",
         ].join("\n"),
         timeoutMs: SELF_SMOKE_TIMEOUT,
@@ -417,8 +444,12 @@ describe.runIf(LIVE)("subagents print-mode e2e (live LLM, opt-in)", () => {
       expect(calls.some((c) => c.run_in_background === true)).toBe(true);
       // — the result-retrieval tool was called
       expect(tools).toContain("get_subagent_result");
-      // — the Explore type was dispatched
-      expect(calls.some((c) => String(c.subagent_type ?? "").toLowerCase() === "explore")).toBe(true);
+      // — the non-default type was dispatched
+      expect(
+        calls.some(
+          (c) => String(c.subagent_type ?? "").toLowerCase() === nonDefaultType.toLowerCase(),
+        ),
+      ).toBe(true);
       // — and the real child outputs materialized in the conversation (the
       //   foreground tool result + the get_subagent_result result). We check the
       //   whole transcript, not the final message: the agent's closing report
