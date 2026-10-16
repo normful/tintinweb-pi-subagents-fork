@@ -473,7 +473,7 @@ describe("settings persistence", () => {
     });
 
     it("accepts all valid toolDescriptionMode values", () => {
-      for (const mode of ["full", "compact", "custom"] as const) {
+      for (const mode of ["full", "compact"] as const) {
         writeProject({ toolDescriptionMode: mode });
         expect(loadSettings(projectDir)).toEqual({ toolDescriptionMode: mode });
       }
@@ -485,6 +485,11 @@ describe("settings persistence", () => {
       writeProject({ toolDescriptionMode: true });
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
       writeProject({ toolDescriptionMode: null });
+      expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
+      // `custom` used to name a user-authored description file. It is an invalid
+      // value now, and a stale one is dropped rather than warned about — the
+      // outcome is the same default `full` the missing-file fallback produced.
+      writeProject({ toolDescriptionMode: "custom" });
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
     });
 

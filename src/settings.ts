@@ -111,11 +111,8 @@ export interface SubagentsSettings {
    * Which Agent tool description the LLM sees. "full" (default) is the rich
    * Claude Code-style prompt; "compact" is a ~70% smaller version (one-line
    * agent type list, terse usage notes) for small/local models where tool-spec
-   * tokens are expensive; "custom" reads `.pi/agent-tool-description.md`
-   * (project, falling back to `<agentDir>/agent-tool-description.md`) with
-   * `{{placeholder}}` substitution — a missing/empty file falls back to "full".
-   * The mode is read once at tool registration — changing it applies on the
-   * next pi session.
+   * tokens are expensive. The mode is read once at tool registration — changing
+   * it applies on the next pi session.
    */
   toolDescriptionMode?: ToolDescriptionMode;
   /**
@@ -339,7 +336,7 @@ export interface SubagentsSettings {
   viewerMarkdown?: ViewerMarkdownMode;
 }
 
-export type ToolDescriptionMode = "full" | "compact" | "custom";
+export type ToolDescriptionMode = "full" | "compact";
 
 /** Setter hooks used by applySettings to wire persisted values into in-memory state. */
 export interface SettingsAppliers {
@@ -375,7 +372,7 @@ export interface SettingsAppliers {
 export type SettingsEmit = (event: string, payload: unknown) => void;
 
 const VALID_JOIN_MODES: ReadonlySet<string> = new Set<JoinMode>(["async", "group", "smart"]);
-const VALID_TOOL_DESCRIPTION_MODES: ReadonlySet<string> = new Set<ToolDescriptionMode>(["full", "compact", "custom"]);
+const VALID_TOOL_DESCRIPTION_MODES: ReadonlySet<string> = new Set<ToolDescriptionMode>(["full", "compact"]);
 const VALID_WIDGET_MODES: ReadonlySet<string> = new Set<WidgetMode>(["all", "background", "off"]);
 const VALID_VIEWER_MARKDOWN_MODES: ReadonlySet<string> = new Set<ViewerMarkdownMode>(["off", "assistant", "all"]);
 const VALID_AGENT_MENTION_MODES: ReadonlySet<string> = new Set<AgentMentionMode>(["model", "direct", "off"]);

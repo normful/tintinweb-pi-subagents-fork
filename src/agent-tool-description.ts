@@ -1,24 +1,22 @@
 /**
  * agent-tool-description.ts — the model-facing `Agent` tool description, and the
- * roster renderer it is built from.
+ * agent catalogue the `list_agents` tool returns.
  *
  * Kept out of index.ts for the same reason `src/workflow/tool-description.ts` is:
  * the prose is large and re-sent on every turn, and trimming it means reading it
- * next to the roster renderer it depends on instead of 1,500 lines into the
+ * next to the catalogue renderer it depends on instead of 1,500 lines into the
  * extension factory.
  *
  * Everything here is a pure function of its inputs. The roster arrives as
  * accessors rather than an array so listing order and liveness stay the
  * registry's business; the two feature gates arrive as booleans, because they
  * are read once at tool registration and the prose each one decides has to
- * vanish together with the parameter it describes (see `{{isolationGuideline}}`
- * / `{{scheduleGuideline}}` below).
+ * vanish together with the parameter it describes.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, sep } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { BUILTIN_TOOL_NAMES } from "./agent-types.js";
 import type { ToolDescriptionMode } from "./settings.js";
 import type { AgentConfig } from "./types.js";
 
@@ -31,40 +29,42 @@ export interface AgentRoster {
 }
 
 /**
- * Format an agent's tool scope for the Agent tool description.
+ * The one-character scope badge a catalogue row carries.
  *
- * This suffix describes BUILT-IN scope only — extension tools are resolved when
- * the agent runs (extensions can register asynchronously), so they cannot be
- * enumerated while the description is being built. That is why an agent with
- * `tools: "*, ext:mcp/search"` renders "*" and always has.
+ * Built-in scope only: extension tools are resolved when the agent runs
+ * (extensions can register asynchronously), so they cannot be enumerated while
+ * the catalogue is built. That is why an agent with `tools: "*, ext:mcp/search"`
+ * reads `w` and always has.
  *
- * Two distinctions matter, both of them capability claims the orchestrator acts on:
+ * Three distinctions are capability claims the orchestrator acts on, and each
+ * keeps its own badge:
  *
- * - absent vs empty. `builtinToolNames: undefined` means the agent never narrowed
- *   its tools (the shipped defaults); `[]` is what `tools: none` and an `ext:`-only
- *   `tools:` parse to, and the runtime really does hand those agents no built-ins.
- *   Rendering both "*" tells the orchestrator a tool-less agent can run `bash`.
- * - empty-with-extensions vs empty-without. Zero built-ins does NOT imply zero
- *   tools: `tools: none` alongside `extensions:` still surfaces every extension
- *   tool (see test/fixtures/.pi/agents/tools-none.md, which expects three). Calling
- *   that "none" understates the agent instead of overstating it — better, but still
- *   wrong, and it would route work away from the only agent able to do it. "none"
- *   is therefore reserved for agents that genuinely can call nothing: `isolated`
- *   agents and those with `extensions: false`.
+ * - `w` — the agent can edit: it holds `write` or `edit`, or it never narrowed
+ *   its tools (`builtinToolNames: undefined`, the shipped defaults) and so has
+ *   every built-in. Treating absent as "read-only" would tell the orchestrator an
+ *   agent cannot write when it can.
+ * - `r` vs `s` — no `write`/`edit` does NOT mean an agent cannot change the
+ *   repository: `bash` can, and agents that hold `bash` while holding no editing
+ *   tool are ordinary. `r` is a claim that the agent only reads, so shell-only
+ *   agents get `s` instead of inheriting it.
+ * - `e` vs `-` — zero built-ins is not zero tools: `tools: none` alongside
+ *   `extensions:` still surfaces every extension tool (see
+ *   test/fixtures/.pi/agents/tools-none.md, which expects three). Calling that
+ *   `-` would route work away from the only agent that could do it, so `-` is
+ *   reserved for agents that genuinely can call nothing: `isolated` agents and
+ *   those with `extensions: false`, which the runner treats the same way.
  */
-export function formatToolsSuffix(cfg: AgentConfig | undefined): string {
+export type ScopeTag = "r" | "s" | "w" | "e" | "-";
+
+export function scopeTag(cfg: AgentConfig | undefined): ScopeTag {
   const tools = cfg?.builtinToolNames;
-  if (!tools) return "*";
+  if (!tools) return "w";
   if (tools.length === 0) {
-    // `isolated` overrides extensions to false in the runner, so both mean the
-    // agent has no extension tools either — and then it truly has nothing.
     const noExtensionTools = cfg?.isolated === true || cfg?.extensions === false;
-    return noExtensionTools ? "none" : "no built-ins, extension tools only";
+    return noExtensionTools ? "-" : "e";
   }
-  const isFullSet =
-    tools.length === BUILTIN_TOOL_NAMES.length
-    && BUILTIN_TOOL_NAMES.every((t) => tools.includes(t));
-  return isFullSet ? "*" : tools.join(", ");
+  if (tools.includes("write") || tools.includes("edit")) return "w";
+  return tools.includes("bash") ? "s" : "r";
 }
 
 /** Derive a short model label from a model string. */
@@ -112,38 +112,94 @@ export function summarize(text: string, max = ROSTER_ROW_MAX): string {
 /**
  * The bare roster: every available type name, comma-separated, on one line.
  *
- * This is what the every-turn descriptions carry. A row per agent with its
- * description, model and tool scope is the catalogue below — 7.5 KB with 19
- * agents, and rendered into this extension's tool spec twice — so it is built on
- * demand rather than paid for on every turn.
+ * This is what the every-turn descriptions carry. A row per agent — its
+ * description, its file and its scope — is the catalogue below: ~2 KB per call
+ * here and rendered into this extension's tool spec twice if it were inlined,
+ * so it is built on demand rather than paid for on every turn.
  */
 function rosterNames(roster: AgentRoster): string {
   return roster.availableTypes().join(", ");
 }
 
 /**
- * The catalogue: one row per agent, with a capped description, its model and its
- * tool scope.
- *
- * Rows are capped by `summarize` so that asking for the catalogue cannot itself
- * become the context problem it replaced. Reached on demand only: the `list_agents`
- * tool returns it, and a custom template reaches it through `{{typeList}}`.
+ * Where the catalogue resolves directory addresses: the ambient paths are the
+ * defaults so the legend can be rendered deterministically by a test.
  */
-function buildTypeListText(roster: AgentRoster): string {
-  return roster.availableTypes().map((name) => {
-    const cfg = roster.agentConfig(name);
-    const modelSuffix = cfg?.model ? ` (${getModelLabelFromConfig(cfg.model)})` : "";
-    const toolsSuffix = ` (Tools: ${formatToolsSuffix(cfg)})`;
-    return `- ${name}: ${summarize(cfg?.description ?? name)}${modelSuffix}${toolsSuffix}`;
-  }).join("\n");
+export interface CataloguePaths {
+  /** A directory here or below reads `~/…`. */
+  home: string;
+  /** A directory here or below drops the prefix and reads relative. */
+  cwd: string;
 }
 
-/** Compact type list: one line per agent, first sentence only. */
-function buildCompactTypeListText(roster: AgentRoster): string {
-  return roster.availableTypes().map((name) => {
+/** `~/…` under home, relative under cwd, absolute otherwise. */
+function abbreviateDir(dir: string, paths: CataloguePaths): string {
+  if (dir === paths.cwd || dir.startsWith(paths.cwd + sep)) {
+    return dir.slice(paths.cwd.length + 1) || ".";
+  }
+  if (dir === paths.home || dir.startsWith(paths.home + sep)) {
+    return `~${dir.slice(paths.home.length)}`;
+  }
+  return dir;
+}
+
+/** What each `scope:` badge means, in the order the badges run from most to least capable. */
+const SCOPE_LEGEND =
+  "scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools";
+
+/**
+ * The catalogue: two legend lines, then one row per agent.
+ *
+ * A row is `- <dir> <scope> <name>: <description>`, both one-letter tags
+ * resolving against the legend. Repeating a path or a tool list per row costs
+ * more than the legend that replaces them, and the description is the only part
+ * whose length varies with what an author wrote — so it is capped by `summarize`
+ * and everything else is fixed-width.
+ *
+ * Reached on demand only: the `list_agents` tool returns it. An empty registry
+ * renders empty rather than a legend with no rows under it.
+ */
+export function buildAgentCatalogue(
+  roster: AgentRoster,
+  paths: CataloguePaths = { home: homedir(), cwd: process.cwd() },
+): string {
+  const names = roster.availableTypes();
+  if (names.length === 0) return "";
+
+  // Directories are numbered in the order the rows first mention them; 0 is for
+  // the embedded defaults, which have no file of their own.
+  const dirs = new Map<string, number>();
+  let hasEmbedded = false;
+  const dirIndexOf = (cfg: AgentConfig | undefined): number => {
+    const path = cfg?.sourcePath;
+    if (!path) {
+      hasEmbedded = true;
+      return 0;
+    }
+    const dir = abbreviateDir(dirname(path), paths);
+    const existing = dirs.get(dir);
+    if (existing !== undefined) return existing;
+    const index = dirs.size + 1;
+    dirs.set(dir, index);
+    return index;
+  };
+
+  const rows = names.map((name) => {
     const cfg = roster.agentConfig(name);
-    return `- ${name}: ${firstSentence(cfg?.description ?? name)} (Tools: ${formatToolsSuffix(cfg)})`;
-  }).join("\n");
+    const dir = dirIndexOf(cfg);
+    // The legend names a row's file as `<dir>/<type>.md`, which is what the loader
+    // derives the type from. A file whose frontmatter `name:` overrides its
+    // filename loads under the declared name, so that row prints its own filename
+    // instead — the alternative is naming a path the reader cannot open.
+    const file = cfg?.sourcePath ? basename(cfg.sourcePath) : undefined;
+    const fileHint = file && file !== `${name}.md` ? ` (file: ${file})` : "";
+    return `- ${dir} ${scopeTag(cfg)} ${name}: ${summarize(cfg?.description ?? name)}${fileHint}`;
+  });
+
+  const legend = [...dirs].map(([dir, index]) => `${index}=${dir}`);
+  if (hasEmbedded) legend.unshift("0=built-in (no file)");
+  const fileLegend = dirs.size > 0 ? "  (each agent's file: <dir>/<type>.md)" : "";
+  return [`dirs: ${legend.join(" ")}${fileLegend}`, SCOPE_LEGEND, ...rows].join("\n");
 }
 
 export interface AgentToolDescriptionInput {
@@ -152,41 +208,24 @@ export interface AgentToolDescriptionInput {
   mode: ToolDescriptionMode;
   /**
    * Both gates are read once at registration, and both decide prose that must
-   * disappear together with the schema field it describes — see the note on
-   * `{{isolationGuideline}}` in the README. Left in, the prose would teach the
-   * model to pass a parameter that is no longer declared: accepted (TypeBox sets
-   * no `additionalProperties: false`), then silently dropped by the resolver.
+   * disappear together with the schema field it describes. Left in, the prose
+   * would teach the model to pass a parameter that is no longer declared:
+   * accepted (TypeBox sets no `additionalProperties: false`), then silently
+   * dropped by the resolver.
    */
   schedulingEnabled: boolean;
   worktreeIsolationEnabled: boolean;
 }
 
-export interface AgentToolDescriptions {
-  /** The description the Agent tool registers. */
-  agentToolDescription: string;
-  /** `{{placeholder}}` substitution, reused for the workflow tool's description. */
-  renderTemplate: (template: string) => string;
-  /**
-   * The catalogue, rendered live — what the `list_agents` tool returns.
-   *
-   * Function rather than string: the roster is read at call time, so an agent
-   * added mid-session shows up without re-registering anything.
-   */
-  renderCatalogue: () => string;
-}
-
 /**
  * Build the Agent tool description for one registration.
  *
- * The mode picks among three sources: `compact` swaps in a ~70% smaller
- * description for small/local models (#91); `custom` registers a user-authored
- * `<cwd>/.pi/agent-tool-description.md` (project, then `<agentDir>`) whose
- * dynamic parts stay live via `{{placeholder}}` substitution; anything else —
- * including a `custom` mode with no usable file, which warns and falls back to
- * `full`, since a stale fallback beats a blank tool description. Only the prose
- * is customizable; the parameter schema stays code-owned.
+ * The mode picks between two sources: `compact` swaps in a ~70% smaller
+ * description for small/local models (#91); anything else is the `full`
+ * description. Only the prose is swappable; the parameter schema stays
+ * code-owned.
  */
-export function createAgentToolDescription(input: AgentToolDescriptionInput): AgentToolDescriptions {
+export function createAgentToolDescription(input: AgentToolDescriptionInput): string {
   const { roster, mode, schedulingEnabled, worktreeIsolationEnabled } = input;
 
   const scheduleGuideline = schedulingEnabled
@@ -235,49 +274,5 @@ Custom agents can be defined in .pi/agents/<name>.md (project) or ${getAgentDir(
 
 Brief the agent like a smart colleague who just walked into the room — state the goal, what you already learned or ruled out, and the exact command for a lookup, rather than prescribed steps. Never delegate understanding: name the file, the line, and what specifically to change, because terse command-style prompts produce shallow work.`;
 
-  const renderTemplate = (template: string): string => {
-    const vars: Record<string, () => string> = {
-      typeList: () => buildTypeListText(roster),
-      compactTypeList: () => buildCompactTypeListText(roster),
-      agentNames: () => rosterNames(roster),
-      agentDir: getAgentDir,
-      isolationGuideline: () => isolationGuideline,
-      scheduleGuideline: () => scheduleGuideline,
-    };
-    // Replacement callback (not a string) — agent descriptions may contain `$&` etc.
-    return template.replace(/\{\{(\w+)\}\}/g, (raw, name: string) => {
-      if (vars[name]) return vars[name]();
-      console.warn(`[pi-subagents] agent-tool-description.md: unknown placeholder ${raw} left as-is`);
-      return raw;
-    });
-  };
-
-  const loadCustomToolDescription = (): string | undefined => {
-    for (const path of [
-      join(process.cwd(), ".pi", "agent-tool-description.md"),
-      join(getAgentDir(), "agent-tool-description.md"),
-    ]) {
-      try {
-        if (!existsSync(path)) continue;
-        const text = readFileSync(path, "utf-8").trim();
-        if (text) return renderTemplate(text);
-        console.warn(`[pi-subagents] ${path} is empty — ignoring`);
-      } catch (err) {
-        console.warn(`[pi-subagents] failed to read ${path}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    return undefined;
-  };
-
-  const agentToolDescription = (() => {
-    if (mode === "compact") return compactAgentToolDescription;
-    if (mode === "custom") {
-      const custom = loadCustomToolDescription();
-      if (custom) return custom;
-      console.warn('[pi-subagents] toolDescriptionMode is "custom" but no agent-tool-description.md found — using "full"');
-    }
-    return fullAgentToolDescription;
-  })();
-
-  return { agentToolDescription, renderTemplate, renderCatalogue: () => buildTypeListText(roster) };
+  return mode === "compact" ? compactAgentToolDescription : fullAgentToolDescription;
 }

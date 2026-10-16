@@ -439,12 +439,12 @@ describe("against pi's real provider", () => {
     // so the two spans cannot disagree where both produce rows.
     const p = provider();
     const suggestions = (await suggest(p, "@ex"))!;
-    const fileRow = { value: "@examples/agent-tool-description.md", label: "agent-tool-description.md" };
+    const fileRow = { value: "@examples/workflows/compose.js", label: "compose.js" };
 
     expect(p.applyCompletion(["@ex"], 0, 3, fileRow, suggestions.prefix).lines)
-      .toEqual(["@examples/agent-tool-description.md "]);
+      .toEqual(["@examples/workflows/compose.js "]);
     expect(p.applyCompletion(["ask @ex now"], 0, 7, fileRow, suggestions.prefix).lines)
-      .toEqual(["ask @examples/agent-tool-description.md  now"]);
+      .toEqual(["ask @examples/workflows/compose.js  now"]);
   });
 
   it("declares a trigger character the editor will actually accept", () => {

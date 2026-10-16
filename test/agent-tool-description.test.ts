@@ -1,10 +1,10 @@
 /**
- * agent-tool-description.test.ts — the roster renderer and the Agent tool
- * description it feeds.
+ * agent-tool-description.test.ts — the agent catalogue and the Agent tool
+ * description it sits beside.
  *
  * Two things are pinned here that nothing else checks.
  *
- * `summarize` is the bound on a roster row. Without it a row's length is
+ * `summarize` is the bound on a catalogue row. Without it a row's length is
  * whatever an agent file's author wrote — the shipped ones run to 544
  * characters, and `firstSentence` alone does not bound them, since a description
  * with no internal `.`, `!` or `?` passes through whole.
@@ -16,8 +16,8 @@
  * inside, this file fails instead of the coupling going unnoticed.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { createAgentToolDescription, formatToolsSuffix, summarize } from "../src/agent-tool-description.js";
+import { describe, expect, it } from "vitest";
+import { buildAgentCatalogue, createAgentToolDescription, getModelLabelFromConfig, scopeTag, summarize } from "../src/agent-tool-description.js";
 import type { AgentConfig } from "../src/types.js";
 
 /** Flatten the way `summarize` does, so a test can assert on a prefix. */
@@ -76,31 +76,112 @@ describe("summarize", () => {
   });
 });
 
-describe("formatToolsSuffix", () => {
+describe("scopeTag", () => {
   const cfg = (over: Partial<AgentConfig>) => ({ name: "x", ...over }) as AgentConfig;
 
-  it("renders `*` for an agent that never narrowed its tools", () => {
-    expect(formatToolsSuffix(cfg({}))).toBe("*");
-    expect(formatToolsSuffix(undefined)).toBe("*");
+  it("reads an agent that never narrowed its tools as writable", () => {
+    // Absent is every built-in, `write` and `edit` included — not read-only.
+    expect(scopeTag(cfg({}))).toBe("w");
+    expect(scopeTag(undefined)).toBe("w");
   });
 
-  it("renders `*` for an explicit full built-in set", () => {
-    expect(formatToolsSuffix(cfg({ builtinToolNames: ["read", "bash", "grep", "find", "ls", "edit", "write"] }))).toBe("*");
+  it("reads an explicit full built-in set as writable", () => {
+    expect(scopeTag(cfg({ builtinToolNames: ["read", "bash", "grep", "find", "ls", "edit", "write"] }))).toBe("w");
   });
 
-  it("lists a narrowed set", () => {
-    expect(formatToolsSuffix(cfg({ builtinToolNames: ["read", "grep"] }))).toBe("read, grep");
+  it("separates a shell that can write from an agent that only reads", () => {
+    // `bash` can change the repository, so it must not inherit the read-only
+    // badge that `r` claims.
+    expect(scopeTag(cfg({ builtinToolNames: ["read", "bash", "grep", "find", "ls"] }))).toBe("s");
+    expect(scopeTag(cfg({ builtinToolNames: ["read", "grep", "find", "ls"] }))).toBe("r");
   });
 
-  it("reserves `none` for an agent that can genuinely call nothing", () => {
-    expect(formatToolsSuffix(cfg({ builtinToolNames: [], isolated: true }))).toBe("none");
-    expect(formatToolsSuffix(cfg({ builtinToolNames: [], extensions: false }))).toBe("none");
+  it("reads a narrowed set with an editing tool as writable", () => {
+    expect(scopeTag(cfg({ builtinToolNames: ["read", "write"] }))).toBe("w");
+    expect(scopeTag(cfg({ builtinToolNames: ["read", "edit"] }))).toBe("w");
+  });
+
+  it("reserves `-` for an agent that can genuinely call nothing", () => {
+    expect(scopeTag(cfg({ builtinToolNames: [], isolated: true }))).toBe("-");
+    expect(scopeTag(cfg({ builtinToolNames: [], extensions: false }))).toBe("-");
   });
 
   it("distinguishes zero built-ins from zero tools", () => {
-    expect(formatToolsSuffix(cfg({ builtinToolNames: [], extensions: true }))).toBe(
-      "no built-ins, extension tools only",
+    expect(scopeTag(cfg({ builtinToolNames: [], extensions: true }))).toBe("e");
+  });
+});
+
+describe("buildAgentCatalogue", () => {
+  const agent = (over: Partial<AgentConfig>) => ({ name: "x", ...over }) as AgentConfig;
+
+  it("numbers a directory once and reuses it for every agent in it", () => {
+    const roster = {
+      availableTypes: () => ["gp", "explorer", "auditor", "shipper"],
+      agentConfig: (type: string) =>
+        ({
+          gp: agent({ name: "gp", description: "General purpose." }),
+          explorer: agent({
+            name: "explorer",
+            description: "Explores.",
+            sourcePath: "/home/me/.pi/agent/agents/explorer.md",
+            builtinToolNames: ["read", "grep", "find", "ls"],
+          }),
+          auditor: agent({
+            name: "auditor",
+            description: "Audits.",
+            sourcePath: "/work/.pi/agents/auditor.md",
+            builtinToolNames: ["read", "bash"],
+          }),
+          shipper: agent({
+            name: "shipper",
+            description: "Ships.",
+            sourcePath: "/home/me/.pi/agent/agents/shipper.md",
+            builtinToolNames: ["read", "write"],
+          }),
+        })[type],
+    };
+
+    expect(buildAgentCatalogue(roster, { home: "/home/me", cwd: "/work" })).toBe(
+      [
+        "dirs: 0=built-in (no file) 1=~/.pi/agent/agents 2=.pi/agents  (each agent's file: <dir>/<type>.md)",
+        "scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools",
+        "- 0 w gp: General purpose.",
+        "- 1 r explorer: Explores.",
+        "- 2 s auditor: Audits.",
+        "- 1 w shipper: Ships.",
+      ].join("\n"),
     );
+  });
+
+  it("names the real file when frontmatter `name:` overrode the filename", () => {
+    // The `<dir>/<type>.md` in the legend is a guess the loader does not always
+    // honour: `name:` wins, so that row has to carry its own filename.
+    const roster = {
+      availableTypes: () => ["reviewer"],
+      agentConfig: () => agent({
+        name: "reviewer",
+        description: "Reviews.",
+        sourcePath: "/work/.pi/agents/code-reviewer.md",
+      }),
+    };
+    const catalogue = buildAgentCatalogue(roster, { home: "/home/me", cwd: "/work" });
+    expect(catalogue).toContain("dirs: 1=.pi/agents  (each agent's file: <dir>/<type>.md)");
+    expect(catalogue).toContain("- 1 w reviewer: Reviews. (file: code-reviewer.md)");
+  });
+
+  it("lists only the legend when every agent is an embedded default", () => {
+    const roster = {
+      availableTypes: () => ["gp"],
+      agentConfig: () => agent({ name: "gp", description: "General purpose." }),
+    };
+    const catalogue = buildAgentCatalogue(roster, { home: "/home/me", cwd: "/work" });
+    expect(catalogue).toContain("dirs: 0=built-in (no file)\n");
+    expect(catalogue).not.toContain("<dir>/<type>.md");
+  });
+
+  it("renders nothing at all for an empty registry", () => {
+    // No legend with no rows under it.
+    expect(buildAgentCatalogue({ availableTypes: () => [], agentConfig: () => undefined })).toBe("");
   });
 });
 
@@ -125,7 +206,7 @@ describe("createAgentToolDescription", () => {
     });
 
   it("renders exactly the injected roster — no registry dependency", () => {
-    const { agentToolDescription } = build();
+    const agentToolDescription = build();
     // The every-turn roster is the bare name list, not rows.
     expect(agentToolDescription).toContain("zig-locator, zig-verifier");
     expect(agentToolDescription).not.toContain("- zig-locator:");
@@ -135,24 +216,21 @@ describe("createAgentToolDescription", () => {
   });
 
   it("renders the catalogue on demand, with each row's description capped", () => {
-    const catalogue = build().renderTemplate("{{typeList}}");
-    expect(catalogue).toContain("- zig-locator: Finds zig files. (zig-1) (Tools: find)");
-    expect(catalogue).toContain("- zig-verifier: Verifies zig claims. (Tools: none)");
+    const catalogue = buildAgentCatalogue(fakeRoster);
+    expect(catalogue).toContain("- 0 r zig-locator: Finds zig files.");
+    expect(catalogue).toContain("- 0 - zig-verifier: Verifies zig claims.");
     expect(catalogue).not.toContain("general-purpose");
     // `Use when searching.` is the clause the cap drops — it must not be here.
     expect(catalogue).not.toContain("Use when searching");
   });
 
-  it("`{{agentNames}}` renders the bare list the descriptions carry", () => {
-    expect(build().renderTemplate("{{agentNames}}")).toBe("zig-locator, zig-verifier");
-  });
-
   it("strips the provider prefix and the date suffix from the model label", () => {
-    expect(build().renderTemplate("{{typeList}}")).toContain("(zig-1)");
+    expect(getModelLabelFromConfig("acme/zig-1-20250101")).toBe("zig-1");
+    expect(getModelLabelFromConfig("zig-1")).toBe("zig-1");
   });
 
   it("compact mode swaps in the shorter description and the same bare name list", () => {
-    const { agentToolDescription } = build({ mode: "compact" });
+    const agentToolDescription = build({ mode: "compact" });
     expect(agentToolDescription).toContain("Launch an autonomous agent");
     expect(agentToolDescription).not.toContain("## Usage notes");
     expect(agentToolDescription).toContain("zig-locator, zig-verifier");
@@ -161,58 +239,17 @@ describe("createAgentToolDescription", () => {
   });
 
   it("gates the schedule bullet on schedulingEnabled", () => {
-    expect(build().agentToolDescription).toContain("Use `schedule` only when");
-    expect(build({ schedulingEnabled: false }).agentToolDescription).not.toContain("schedule");
+    expect(build()).toContain("Use `schedule` only when");
+    expect(build({ schedulingEnabled: false })).not.toContain("schedule");
   });
 
   it("gates the isolation bullet on worktreeIsolationEnabled", () => {
-    expect(build().agentToolDescription).toContain('Use isolation: "worktree"');
-    expect(build({ worktreeIsolationEnabled: false }).agentToolDescription).not.toContain("isolation");
+    expect(build()).toContain('Use isolation: "worktree"');
+    expect(build({ worktreeIsolationEnabled: false })).not.toContain("isolation");
   });
 
   it("gates the compact isolation bullet with the same switch", () => {
-    expect(build({ mode: "compact" }).agentToolDescription).toContain('isolation: "worktree"');
-    expect(build({ mode: "compact", worktreeIsolationEnabled: false }).agentToolDescription).not.toContain("isolation");
-  });
-
-  it("expands every documented placeholder and leaves unknown ones verbatim", () => {
-    const { renderTemplate } = build();
-    const rendered = renderTemplate("A {{typeList}} B {{compactTypeList}} C {{agentDir}} D {{scheduleGuideline}} E {{isolationGuideline}} F {{nope}}");
-    expect(rendered).not.toContain("{{typeList}}");
-    expect(rendered).not.toContain("{{compactTypeList}}");
-    expect(rendered).not.toContain("{{agentDir}}");
-    expect(rendered).not.toContain("{{scheduleGuideline}}");
-    expect(rendered).not.toContain("{{isolationGuideline}}");
-    expect(rendered).toContain("{{nope}}");
-    expect(rendered).toContain("- zig-locator:");
-  });
-
-  it("does not expand `$&` in an agent description", () => {
-    // The replacement callback exists for this: a string replacement would
-    // interpret `$&` in whatever the roster rendered.
-    const { renderTemplate } = build({
-      roster: { ...fakeRoster, agentConfig: () => ({ name: "p", description: "Cost $& stays literal", builtinTools: [] } as unknown as AgentConfig) },
-    });
-    expect(renderTemplate("{{typeList}}")).toContain("Cost $& stays literal");
-  });
-
-  it("expands the gated placeholders to the empty string when the gate is off", () => {
-    const { renderTemplate } = build({ schedulingEnabled: false, worktreeIsolationEnabled: false });
-    expect(renderTemplate("RULES:{{scheduleGuideline}}\nEND")).toBe("RULES:\nEND");
-    expect(renderTemplate("RULES:{{isolationGuideline}}\nEND")).toBe("RULES:\nEND");
-  });
-
-  it("falls back to the full description when custom mode finds no file", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      // No `.pi/agent-tool-description.md` in a fake roster's world; the loader
-      // only ever reads the real filesystem, so this exercises the fallback.
-      const { agentToolDescription } = build({ mode: "custom" });
-      // Full, not compact: the headings only the full description has.
-      expect(agentToolDescription).toContain("## Usage notes");
-      expect(agentToolDescription).toContain("zig-locator, zig-verifier");
-    } finally {
-      warn.mockRestore();
-    }
+    expect(build({ mode: "compact" })).toContain('isolation: "worktree"');
+    expect(build({ mode: "compact", worktreeIsolationEnabled: false })).not.toContain("isolation");
   });
 });

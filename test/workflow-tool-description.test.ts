@@ -2,11 +2,11 @@
  * workflow-tool-description.test.ts — the model reads this text on every turn,
  * and nothing else checks it.
  *
- * `tool-description.ts` is one exported template literal, so coverage reports it
- * at 100% (1/1 statements) no matter what it says. That is exactly the shape of
- * file that drifts: the description once told the model `resume` was only
- * exclusive with `agentType`, while the runtime rejected six options, and an
- * example once combined `resume` with `gate`, which throws.
+ * `tool-description.ts` is one exported template-building function, so coverage
+ * reports it at 100% (1/1 statements) no matter what it says. That is exactly
+ * the shape of file that drifts: the description once told the model `resume`
+ * was only exclusive with `agentType`, while the runtime rejected six options,
+ * and an example once combined `resume` with `gate`, which throws.
  *
  * So the assertions here derive their expectations from `worker-source.ts`
  * rather than restating them: the option set, the exclusions and the effort
@@ -25,7 +25,9 @@ import {
 } from "../src/workflow/runtime.js";
 import { fullWorkflowToolDescription } from "../src/workflow/tool-description.js";
 
-const description = fullWorkflowToolDescription;
+/** A fixed roster, so an assertion about the injected names is about injection and nothing else. */
+const AGENT_NAMES = "alpha-locator, beta-verifier";
+const description = fullWorkflowToolDescription(AGENT_NAMES);
 const workerSource = readFileSync(
   fileURLToPath(new URL("../src/workflow/worker-source.ts", import.meta.url)),
   "utf8",
@@ -147,12 +149,12 @@ describe("the limits it quotes", () => {
 });
 
 describe("rendering", () => {
-  it("keeps the placeholder the live agent roster is substituted into", () => {
+  it("substitutes the live agent roster into the agentType bullet", () => {
     // The bare name list, not the catalogue: this description is re-sent on every
     // turn whether or not a workflow runs, and the catalogue is rendered on
     // demand instead.
-    expect(description).toContain("{{agentNames}}");
-    expect(description).not.toContain("{{typeList}}");
+    expect(description).toContain(AGENT_NAMES);
+    expect(description).not.toContain("{{");
   });
 
   it("leaves no unescaped template interpolation from the source literal", () => {

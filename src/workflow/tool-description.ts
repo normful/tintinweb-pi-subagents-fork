@@ -31,15 +31,16 @@
  * tools reached through `ToolSearch`, the `agent-<id>.jsonl` resume fallback,
  * and the `/config` workflow-size guideline.
  *
- * Kept out of index.ts purely for size. `{{placeholder}}` tokens are rendered by
- * the same substitution pass the Agent tool's description uses, so a
- * user-authored override can interpolate the live agent roster.
+ * Kept out of index.ts purely for size. The live agent roster is passed in at
+ * registration, because a description that names no agents is a description the
+ * model cannot call `agentType` against.
  */
 
 /**
- * Rendered with `{{agentNames}}` substituted. Keep the prose accurate to what the
- * runtime actually implements — documenting a global we do not ship is worse
- * than documenting nothing, because the script only fails once it is running.
+ * Rendered with the live agent type names at the top of the `agentType` bullet.
+ * Keep the prose accurate to what the runtime actually implements — documenting
+ * a global we do not ship is worse than documenting nothing, because the script
+ * only fails once it is running.
  * `workflow-tool-description.test.ts` pins the parts that can drift: the
  * `agent()` option set, the `resume` exclusions, the effort levels, the caps,
  * and that every example here uses options the runtime actually accepts.
@@ -57,7 +58,8 @@
  *   - the effort parenthetical verbatim, and the three cap figures;
  *   - the literal `${f.title}` — the sentinel for unescaped source templating.
  */
-export const fullWorkflowToolDescription = `Execute a workflow script that orchestrates multiple subagents deterministically. Returns a task ID immediately; the run continues in the background and notifies you on completion (/agents → Workflows).
+export function fullWorkflowToolDescription(agentNames: string): string {
+  return `Execute a workflow script that orchestrates multiple subagents deterministically. Returns a task ID immediately; the run continues in the background and notifies you on completion (/agents → Workflows).
 
 ONLY call this when the user explicitly opted into multi-agent orchestration — in their own words ("use a workflow", "fan out agents"), via a skill or slash command that says to, or by naming a saved workflow. A workflow can spawn dozens of agents and cost a lot of tokens, so the user must ask for that scale. Otherwise use the Agent tool, or say what a workflow could do and what it would cost, and ask.
 
@@ -72,7 +74,7 @@ Every script must begin with \`export const meta = {...}\` — a PURE LITERAL, w
 
 Body globals:
 - agent(prompt, opts?): Promise<any> — spawn a subagent; returns its final text, or the object validated against opts.schema. opts.label names it in the UI and is the handle opts.resume addresses; opts.phase sets a progress group (use it inside pipeline()/parallel() stages, where the ambient phase() races); opts.model and opts.effort override the model and the reasoning effort for this agent call ('minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'), defaulting to the agent's level then the parent's; opts.isolation: 'worktree' gives it a git worktree (removed on settle, changes kept on a branch); opts.gate: '<command>' fails the child on a non-zero exit; opts.agentType picks a registered type over the default; opts.resume: '<label>' continues that child, and excludes opts.agentType, opts.model, opts.isolation, opts.effort, opts.schema and opts.gate, which it keeps from its first run. Unknown options throw. Types for opts.agentType:
-{{agentNames}}
+${agentNames}
 - pipeline(items, ...stages): no barrier — each item walks its own chain, so wall-clock is the slowest one; a throwing stage drops its item to \`null\`. Default to this.
 - parallel(thunks): a barrier that waits for all; a throwing thunk resolves to \`null\` (filter with \`.filter(Boolean)\`), except a fatal run error, which propagates.
 - log(message), phase(title): a progress line for the human; a progress group for the agent() calls that follow.
@@ -92,3 +94,4 @@ Canonical shape:
 
 Scale the fan-out to the ask. For determinism, \`resumeFromRunId\` replay and the orchestration recipes, see the \`writing-subagent-workflows\` skill.
 `;
+}

@@ -21,7 +21,7 @@ import { buildNewAgentFile, disableInContent, enableInContent, isEmptyStub, loca
 import { AgentManager, isTopLevelAgent } from "./agent-manager.js";
 import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, getRememberAgents, normalizeMaxTurns, resolveEffectiveMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, setRememberAgents, steerAgent } from "./agent-runner.js";
 import { rowDescription, sourceIndicator, sourceLegend } from "./agent-source-badge.js";
-import { createAgentToolDescription, getModelLabelFromConfig } from "./agent-tool-description.js";
+import { type AgentRoster, buildAgentCatalogue, createAgentToolDescription, getModelLabelFromConfig } from "./agent-tool-description.js";
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, getConfig, getFallbackSubagent, isDefaultsDisabled, NO_FALLBACK, registerAgents, resolveSpawnType, resolveType, setDefaultsDisabled, setFallbackSubagent } from "./agent-types.js";
 import { inChildSessionContext } from "./child-context.js";
 import { CompletionOutbox, NOTIFICATION_HOLD_MS } from "./completion-outbox.js";
@@ -261,12 +261,6 @@ function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, act
 
 /** CLI flag that runs a workflow script at session start. */
 export const WORKFLOW_FILE_FLAG = "subagents-workflow-file";
-
-/**
- * Re-exported from where it now lives, because it was defined here and is part
- * of this entry module's surface (the `(Tools: …)` table in the README).
- */
-export { formatToolsSuffix } from "./agent-tool-description.js";
 
 /**
  * Re-exported from where they now live, because this is where they were
@@ -1567,10 +1561,10 @@ export default function (pi: ExtensionAPI) {
 
   // The prose lives in its own module: this factory is the longest file in the
   // extension, and reviewing a trim means reading it beside the roster renderer
-  // it depends on. Both gates are read once here, like the schema gates above,
-  // and `renderTemplate` is shared with the workflow tool's description.
-  const { agentToolDescription, renderTemplate, renderCatalogue } = createAgentToolDescription({
-    roster: { availableTypes: getAvailableTypes, agentConfig: getAgentConfig },
+  // it depends on. Both gates are read once here, like the schema gates above.
+  const roster: AgentRoster = { availableTypes: getAvailableTypes, agentConfig: getAgentConfig };
+  const agentToolDescription = createAgentToolDescription({
+    roster,
     mode: getToolDescriptionMode(),
     schedulingEnabled: isSchedulingEnabled(),
     worktreeIsolationEnabled: isWorktreeIsolationEnabled(),
@@ -2373,12 +2367,12 @@ export default function (pi: ExtensionAPI) {
   // ---- list_agents tool ----
 
   // The routing information the every-turn roster gave up. It names the agents
-  // and stops; what each one does, its model and its tool scope is ~2.5 KB with
-  // the shipped agents (7.5 KB uncapped) and was rendered into the tool spec
-  // twice — so it is paid for only when the choice of type is actually in
-  // question. Registered unconditionally, deliberately: `toolDescriptionMode`
-  // only picks the Agent tool's prose, and gating this on it would leave
-  // `compact` with no way to recover what its roster does not say.
+  // and stops; what each one does, where it is defined and what it can touch is
+  // ~2 KB with the shipped agents and would be rendered into the tool spec twice
+  // — so it is paid for only when the choice of type is actually in question.
+  // Registered unconditionally, deliberately: `toolDescriptionMode` only picks
+  // the Agent tool's prose, and gating this on it would leave `compact` with no
+  // way to recover what its roster does not say.
   //
   // No usage reporting: this call spends no model tokens, so a spend footer on
   // its result would be noise. Registered as a plain tool for that reason.
@@ -2386,10 +2380,10 @@ export default function (pi: ExtensionAPI) {
     name: SUBAGENT_TOOL_NAMES.LIST_AGENTS,
     label: "List Agents",
     description:
-      "List every agent type pi can spawn, with what each one does, its model and the tools it can call. Call this before choosing a `subagent_type` whenever the right type is not obvious from the names in the Agent tool's description.",
+      "List every agent type pi can spawn, with what each one does, where its definition file lives and the scope it runs with. Call this before choosing a `subagent_type` whenever the right type is not obvious from the names in the Agent tool's description.",
     promptSnippet: "List the available agent types and what each one does",
     parameters: Type.Object({}),
-    execute: async () => textResult(renderCatalogue()),
+    execute: async () => textResult(buildAgentCatalogue(roster)),
   });
   pi.registerTool(listAgentsTool);
 
@@ -2497,7 +2491,7 @@ export default function (pi: ExtensionAPI) {
   const workflowTool = defineTool({
     name: SUBAGENT_TOOL_NAMES.WORKFLOW,
     label: "SubagentWorkflow",
-    description: renderTemplate(fullWorkflowToolDescription),
+    description: fullWorkflowToolDescription(getAvailableTypes().join(", ")),
     promptSnippet: "Run a deterministic script that orchestrates many subagents",
     promptGuidelines: [
       "Use SubagentWorkflow only when the user opted into multi-agent orchestration, and only when the number of agents depends on something discovered at runtime, work flows through stages, or findings need independent verification. Use Agent for one delegated task, or a few you can name up front.",
@@ -3837,9 +3831,9 @@ Write the file using the write tool. Only write the file, nothing else.`;
         {
           id: "toolDescriptionMode",
           label: "Tool description",
-          description: "Agent tool description sent to the LLM: full (rich, default), compact (~70% smaller, for small/local models), or custom (.pi/agent-tool-description.md with {{placeholders}})",
+          description: "Agent tool description sent to the LLM: full (rich, default) or compact (~70% smaller, for small/local models)",
           currentValue: getToolDescriptionMode(),
-          values: ["full", "compact", "custom"],
+          values: ["full", "compact"],
         },
       ];
     }

@@ -429,16 +429,22 @@ A few rules the examples don't make obvious:
 
 #### How an agent's scope is advertised
 
-The agent **catalogue** is what the orchestrator reads when deciding where to route work: one row per available agent, each with a `(Tools: …)` suffix. It is not carried in the every-turn tool description — 18 agents of rows cost ~7.5 KB per turn, rendered into the tool spec twice — so the description names the agents and the catalogue is built on demand: the [`list_agents`](#list_agents) tool returns it, and a custom tool description can interpolate it via [`{{typeList}}`](#tool-description). The suffix describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the catalogue is built:
+The agent **catalogue** is what the orchestrator reads when deciding where to route work: a two-line legend, then one row per available agent, `- <dir> <scope> <name>: <description>`, with both one-letter tags resolving against the legend. It is not carried in the every-turn tool description — a row per agent would be paid for on every turn, rendered into the tool spec twice — so the description names the agents and the catalogue is built on demand: the [`list_agents`](#list_agents) tool returns it.
 
-| `tools:` | suffix |
+```text
+dirs: 1=~/.pi/agent/agents 2=.pi/agents  (each agent's file: <dir>/<type>.md)
+scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools
+- 1 r codebase-locator: Locates files, directories, and components relevant to a feature or task.
+- 1 s claim-verifier: Adversarial finding verifier.
+- 2 s auditor: Security Code Reviewer
+```
+
+| badge | meaning |
 |---|---|
-| omitted, `*`, or `all` | `*` |
-| a list of built-ins | that list, e.g. `read, grep` |
-| `none` with `isolated: true` or `extensions: false` | `none` |
-| `none`, or only `ext:` entries, with extensions loading | `no built-ins, extension tools only` |
+| `dirs` index | the directory the agent's `.md` was loaded from, numbered in the order the rows first mention it. `0` is the built-in defaults, which have no file of their own. A row whose frontmatter `name:` overrides its filename carries `(file: <filename>)` instead, since the legend's `<dir>/<type>.md` would name a path that does not exist. |
+| `scope` | `w` — can edit: holds `write`/`edit`, or never narrowed `tools:` at all, which means every built-in. `s` — shell only: holds `bash` with no editing tool, and can still change the repository through it. `r` — holds neither. `e` — zero built-ins, but extensions still surface their tools. `-` — can call nothing: `isolated: true` or `extensions: false`. |
 
-The last two rows are separate because zero built-ins is not zero tools: `tools: none` alongside `extensions:` still surfaces every extension tool, so calling it `none` would understate what the agent can do. Note `*` doesn't enumerate extension tools either — an agent with `tools: "*, ext:mcp/search"` advertises `*`.
+Scope describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the catalogue is built. `r` and `s` are separate for the same reason `e` and `-` are: `bash` writes files, so an agent holding it is not read-only, and zero built-ins is not zero tools — `tools: none` alongside `extensions:` still surfaces every extension tool.
 
 ### Shipping agents in a pi package
 
@@ -557,10 +563,14 @@ Send a steering message to a running agent. The message interrupts after the cur
 
 ### `list_agents`
 
-List every agent type pi can spawn, with what each one does, its model and the tool scope it runs with — the [catalogue](#how-an-agents-scope-is-advertised) the every-turn tool descriptions name but no longer carry. Takes no parameters, is registered in every `toolDescriptionMode`, and is not inherited by subagents. Returns one row per available agent:
+List every agent type pi can spawn — what each one does, which directory its definition file was loaded from, and the scope it runs with. The [catalogue](#how-an-agents-scope-is-advertised) the every-turn tool descriptions name but no longer carry. Takes no parameters, is registered in every `toolDescriptionMode`, and is not inherited by subagents. Returns a two-line legend, then one row per available agent — the three shipped defaults, which have no files of their own:
 
 ```text
-- Explore: Fast read-only search agent for locating code. (claude-haiku-4-5) (Tools: read, bash, grep, find, ls)
+dirs: 0=built-in (no file)
+scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools
+- 0 w general-purpose: General-purpose agent for researching complex questions, searching for code,…
+- 0 s Explore: Fast read-only search agent for locating code.
+- 0 s Plan: Software architect agent for designing implementation plans.
 ```
 
 ## Commands
@@ -698,7 +708,7 @@ When on, each subagent spawn's effective model is validated against pi's own `en
 
 ## Persistent Settings
 
-Runtime tuning values set via `/agents` → Settings (max concurrency, max foreground concurrency, default max turns, grace turns, nested depth, fallback agent, default join mode, scheduling on/off, scope models on/off, disable defaults on/off, strict agent files on/off, package agents on/off, package workflows on/off, agent mentions on/off, output transcript on/off, tool description full/compact/custom, widget all/background/off, usage reporting on/off, cost display on/off, model display on/off, viewer markdown off/assistant/all) persist across pi restarts. Two files, merged on load:
+Runtime tuning values set via `/agents` → Settings (max concurrency, max foreground concurrency, default max turns, grace turns, nested depth, fallback agent, default join mode, scheduling on/off, scope models on/off, disable defaults on/off, strict agent files on/off, package agents on/off, package workflows on/off, agent mentions on/off, output transcript on/off, tool description full/compact, widget all/background/off, usage reporting on/off, cost display on/off, model display on/off, viewer markdown off/assistant/all) persist across pi restarts. Two files, merged on load:
 
 - **Global:** `~/.pi/agent/subagents.json` — your machine-wide defaults. Edit by hand; the `/agents` menu never writes here.
 - **Project:** `<cwd>/.pi/subagents.json` — per-project overrides. Written by `/agents` → Settings.
@@ -778,20 +788,7 @@ Leaving it unset is not quite the same as `true`. Unset means *auto*: on, unless
 
 The match is on the exact tool names `Workflow` (Claude Code's) and `SubagentWorkflow` (ours), never a substring, so a `list_workflows` or `github_workflow_run` from some CI integration does not silently take the feature down. The check runs at `session_start` and nowhere earlier, because `getAllTools` throws during extension loading and load order means a check at registration time could not see an extension that has not loaded yet — so the tool is registered first and withdrawn from the active set through `setActiveTools`, which rebuilds the system prompt before any turn runs. When the other extension took the `SubagentWorkflow` name itself, pi's first-registration-wins rule already dropped ours, so there is nothing to withdraw and only the menu and the CLI flag come down.
 
-**Tool description** (`toolDescriptionMode`, default `"full"`): which Agent tool description the LLM sees. Both modes name every available agent and neither embeds an agent's description, model or tool scope — that is the [catalogue](#how-an-agents-scope-is-advertised), rendered on demand. `"full"` is the rich Claude Code-style prompt (~2.4 KB with the three shipped defaults, growing ~18 characters per added agent, since only names are listed); `"compact"` is ~1.0 KB — terse usage notes and no usage headings — for small/local models where tool-spec tokens are expensive. Per-option details stay in the parameter descriptions in every mode (the parameter schema is never customizable). Applies on the next pi session.
-
-`"custom"` registers your own description from `<cwd>/.pi/agent-tool-description.md` (project) or `<agentDir>/agent-tool-description.md` (global; project wins). The file is read once at tool registration, so edits also apply on the next pi session. Dynamic parts stay live via placeholders — a static agent list would go stale the moment you add a custom agent:
-
-```markdown
-Launch an autonomous agent. Available types:
-{{agentNames}}
-
-Custom agents live in .pi/agents/ or {{agentDir}}/agents/.
-```
-
-Placeholders: `{{agentNames}}` (the bare comma-separated name list the built-in descriptions carry), `{{typeList}}` (the full catalogue — what [`list_agents`](#list_agents) returns: one line per agent, with its description capped at 80 characters, its model and its `(Tools: …)` scope), `{{compactTypeList}}` (first sentence of each agent's description), `{{agentDir}}`, `{{isolationGuideline}}` and `{{scheduleGuideline}}` (each expands with its own leading newline + `- ` bullet when the matching feature is on — place them directly after your last rule line; empty when [worktree isolation](#turning-worktrees-off) / scheduling is off). Unknown placeholders are left verbatim with a stderr warning; a missing or empty file falls back to `"full"` with a warning. Note the usual trust umbrella: a project-level file shapes the orchestrator's prompt, same as project agents and extensions do.
-
-**Starting point:** copy [`examples/agent-tool-description.md`](examples/agent-tool-description.md) — it reproduces the default full description exactly (a CI test keeps it in sync), so you can trim from a known-good baseline instead of writing from scratch.
+**Tool description** (`toolDescriptionMode`, default `"full"`): which Agent tool description the LLM sees. Both modes name every available agent and neither embeds an agent's description, its file or its scope — that is the [catalogue](#how-an-agents-scope-is-advertised), rendered on demand. `"full"` is the rich Claude Code-style prompt (~2.4 KB with the three shipped defaults, growing ~18 characters per added agent, since only names are listed); `"compact"` is ~1.0 KB — terse usage notes and no usage headings — for small/local models where tool-spec tokens are expensive. Per-option details stay in the parameter descriptions in every mode. Applies on the next pi session.
 
 **Example — global defaults for a beefy machine:**
 
@@ -1035,7 +1032,6 @@ docs/                 # Long-form guides (shipped to npm; README links out to th
   rpc.md              # Cross-extension integration: pi.events, subagents:rpc:*, manager registry
 examples/
   workflows/          # Runnable examples, executed by test/workflow-examples.test.ts
-  agent-tool-description.md
 skills/
   writing-subagent-workflows/  # Packaged skill: the SubagentWorkflow authoring reference
   writing-subagents/           # Packaged skill: the agent definition file reference
