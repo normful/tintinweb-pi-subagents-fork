@@ -4,7 +4,7 @@ A pi package can declare its own subagents and workflow scripts. Installing the 
 
 This guide is for both sides of that: authoring a package that ships agents, and controlling which packages a machine accepts them from.
 
-For where locally-authored agents live and what their frontmatter accepts, see [`README.md`](../README.md#custom-agents).
+For where locally-authored agents live and what their frontmatter accepts, see [`README.md`](../README.md#custom-agents) and the authoring reference [`skills/writing-subagents/SKILL.md`](../skills/writing-subagents/SKILL.md).
 
 ## The idea
 
