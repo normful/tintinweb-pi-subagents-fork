@@ -1264,7 +1264,7 @@ examples/
   workflows/          # Runnable examples, executed by test/workflow-examples.test.ts
   agent-tool-description.md
 skills/
-  writing-subagent-workflows/  # Packaged skill: the SubagentWorkflow authoring reference
+  workflow-authoring/         # Packaged skill: the SubagentWorkflow authoring reference
 test/                 # vitest suite; e2e/ and perf/ subdirectories
 src/
   index.ts            # Extension entry: tool/command registration, /agents menu, rendering
