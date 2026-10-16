@@ -17,10 +17,10 @@
  * the backstop, deliberately loose enough for a few more shipped agents and
  * tight enough to catch a re-embed.
  *
- * This file also owns the seven `(Tools: …)` scope assertions. They used to
- * render the catalogue through a `{{typeList}}` custom template, because that
- * was the only way to reach it; `list_agents` is the real path now, and testing
- * the real path is the point.
+ * This file also owns the `scope:` badge assertions. They render through
+ * `list_agents`, the real path — the badge is what the orchestrator reads before
+ * choosing an agent, so it is asserted against a booted extension rather than a
+ * unit-tested helper.
  */
 
 import { describe, expect, it } from "vitest";
@@ -145,7 +145,8 @@ describe("per-turn tool-spec budget", () => {
         expect(capped.length).toBeLessThanOrEqual(ROSTER_ROW_MAX + 1);
         // The row's description is exactly the capped first sentence — so the
         // bounding happens in the renderer, not merely in `summarize`.
-        expect(catalogue).toContain(`- ${type}: ${capped}`);
+        const row = catalogue.split("\n").find(line => line.includes(` ${type}: `));
+        expect(row?.endsWith(`${type}: ${capped}`)).toBe(true);
       }
       // And no whole row runs away, whatever an author writes.
       for (const row of catalogue.split("\n")) {
@@ -163,7 +164,7 @@ describe("per-turn tool-spec budget", () => {
       const catalogue = await booted.catalogue();
       const rowNames = catalogue
         .split("\n")
-        .map(line => line.match(/^- ([^:]+): /)?.[1])
+        .map(line => line.match(/^- \d+ \S+ ([^:]+): /)?.[1])
         .filter((name): name is string => Boolean(name));
       // Agreement in both directions: no extra row for an unspawnable type, and
       // no type missing from the catalogue.
@@ -185,94 +186,88 @@ describe("per-turn tool-spec budget", () => {
 });
 
 /**
- * The `(Tools: …)` suffix, rendered through `list_agents`.
+ * The `scope:` badge, rendered through `list_agents`.
  *
- * The tool description is the only thing the orchestrator LLM knows about an
- * agent's capabilities before spawning it. `tools: none` and an `ext:`-only
- * `tools:` both parse to zero built-ins (custom-agents.ts parseToolsField), and
+ * The catalogue is the only thing the orchestrator LLM knows about an agent's
+ * capabilities before spawning it. `tools: none` and an `ext:`-only `tools:`
+ * both parse to zero built-ins (custom-agents.ts parseToolsField), and
  * test/fixtures/.pi/agents/tools-none.md pins that the *runtime* really does
  * drop every built-in. So the catalogue must not claim otherwise — an agent
- * advertised as having `bash` that cannot run `bash` gets routed work it can
- * only fail at.
+ * advertised as able to edit that cannot edit gets routed work it can only fail
+ * at, and the reverse keeps the one agent that could do it out of the running.
  */
-describe("catalogue tool-scope suffix", () => {
+describe("catalogue scope badge", () => {
   const agentFile = (description: string, frontmatter = "") =>
     `---\ndescription: ${description}\n${frontmatter ? `${frontmatter}\n` : ""}---\n\nBody.\n`;
 
-  it("`tools: none` never claims the full built-in set", async () => {
+  /** One row's badge, whatever directory index the hermetic setup produced. */
+  const badgeOf = (catalogue: string, name: string): string | undefined =>
+    catalogue.split("\n").find((line) => line.includes(` ${name}: `))?.split(" ")[2];
+
+  it("`tools: none` with extensions loading keeps its extension tools", async () => {
+    // Zero built-ins is not zero tools: test/fixtures/.pi/agents/tools-none.md
+    // pins that such an agent still surfaces alpha_read, alpha_write, beta_tool.
+    // Reading that as `-` understates it and routes work away from the only
+    // agent that could do it — the mirror of the bug this badge used to have.
     const booted = await boot({ quiet: agentFile("quiet agent.", "tools: none") });
     try {
-      expect(await booted.catalogue()).not.toContain("- quiet: quiet agent. (Tools: *)");
+      expect(badgeOf(await booted.catalogue(), "quiet")).toBe("e");
     } finally {
       await booted.restore();
     }
   });
 
-  it("`tools: none` says none only when the agent can call nothing at all", async () => {
+  it("says `-` only when the agent can call nothing at all", async () => {
     // extensions: false and isolated: true both leave the agent with zero
-    // built-ins AND zero extension tools — the one case "none" is true.
+    // built-ins AND zero extension tools — the one case `-` is true.
     for (const fm of ["tools: none\nextensions: false", "tools: none\nisolated: true"]) {
       const booted = await boot({ silent: agentFile("silent agent.", fm) });
       try {
-        expect(await booted.catalogue()).toContain("- silent: silent agent. (Tools: none)");
+        expect(badgeOf(await booted.catalogue(), "silent")).toBe("-");
       } finally {
         await booted.restore();
       }
     }
   });
 
-  it("`tools: none` with extensions loaded is not described as having no tools", async () => {
-    // Zero built-ins is not zero tools: test/fixtures/.pi/agents/tools-none.md
-    // pins that such an agent still surfaces alpha_read, alpha_write, beta_tool.
-    // Saying "none" understates it and routes work away from the only agent
-    // that could do it — the mirror of the bug this suffix used to have.
-    const booted = await boot({
-      probe: agentFile("probe agent.", 'tools: none\nextensions: "./ext-alpha.mjs"'),
-    });
-    try {
-      const catalogue = await booted.catalogue();
-      expect(catalogue).toContain("- probe: probe agent. (Tools: no built-ins, extension tools only)");
-      expect(catalogue).not.toContain("- probe: probe agent. (Tools: *)");
-      expect(catalogue).not.toContain("- probe: probe agent. (Tools: none)");
-    } finally {
-      await booted.restore();
-    }
-  });
-
   it("an ext:-only `tools:` is described by what it actually has", async () => {
     const booted = await boot({ extonly: agentFile("extonly agent.", 'tools: "ext:probe.mjs"') });
     try {
-      const catalogue = await booted.catalogue();
-      expect(catalogue).toContain("- extonly: extonly agent. (Tools: no built-ins, extension tools only)");
-      expect(catalogue).not.toContain("- extonly: extonly agent. (Tools: *)");
+      expect(badgeOf(await booted.catalogue(), "extonly")).toBe("e");
     } finally {
       await booted.restore();
     }
   });
 
-  it("an omitted `tools:` still renders as * — absent means all built-ins", async () => {
+  it("an omitted `tools:` reads writable — absent means all built-ins", async () => {
     // Guards the fix from over-correcting: undefined (inherit everything, as the
     // shipped defaults do) is not the same as [] (explicitly zero).
     const booted = await boot({ broad: agentFile("broad agent.") });
     try {
-      expect(await booted.catalogue()).toContain("- broad: broad agent. (Tools: *)");
+      expect(badgeOf(await booted.catalogue(), "broad")).toBe("w");
     } finally {
       await booted.restore();
     }
   });
 
-  it("a narrowed `tools:` still lists the names it actually has", async () => {
-    const booted = await boot({ narrow: agentFile("narrow agent.", "tools: read, grep") });
+  it("a narrowed `tools:` reads r, s or w by what it can touch", async () => {
+    const booted = await boot({
+      reads: agentFile("reads agent.", "tools: read, grep"),
+      shells: agentFile("shells agent.", "tools: read, bash"),
+      edits: agentFile("edits agent.", "tools: read, write"),
+    });
     try {
-      expect(await booted.catalogue()).toContain("- narrow: narrow agent. (Tools: read, grep)");
+      const catalogue = await booted.catalogue();
+      expect(badgeOf(catalogue, "reads")).toBe("r");
+      // `bash` can change the repository, so it is not read-only.
+      expect(badgeOf(catalogue, "shells")).toBe("s");
+      expect(badgeOf(catalogue, "edits")).toBe("w");
     } finally {
       await booted.restore();
     }
   });
 
-  it("compact mode renders no suffix at all — there is no second builder to diverge", async () => {
-    // Scope is catalogue-only now. Compact is the smallest mode, so it says
-    // nothing about tools rather than keeping a parallel rendering of them.
+  it("compact mode carries no catalogue rows at all — there is no second builder to diverge", async () => {
     const hermetic = hermeticDir({
       settings: { toolDescriptionMode: "compact" },
       agentFiles: { quiet: agentFile("quiet agent.", "tools: none\nextensions: false") },
@@ -282,6 +277,7 @@ describe("catalogue tool-scope suffix", () => {
     try {
       const description: string = tools.get("Agent").description;
       expect(description).toContain("quiet");
+      expect(description).not.toContain("scope:");
       expect(description).not.toContain("(Tools:");
     } finally {
       await lifecycle.get("session_shutdown")?.({}, { hasUI: false, ui: {} });

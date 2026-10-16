@@ -9,10 +9,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setDefaultsDisabled, setToolDescriptionMode } from "../src/agent-types.js";
-import subagentsExtension from "../src/index.js";
-import { setWorktreeIsolationEnabled } from "../src/worktree.js";
 
 const EXAMPLE_TEMPLATE = fileURLToPath(new URL("../examples/agent-tool-description.md", import.meta.url));
+
+import subagentsExtension from "../src/index.js";
+import { setWorktreeIsolationEnabled } from "../src/worktree.js";
 
 function makePi() {
   const tools = new Map<string, any>();
@@ -133,6 +134,61 @@ describe("toolDescriptionMode", () => {
     expect(desc).toContain("## Usage notes");
   });
 
+  it("`custom` registers the user's file, and falls back to full when there is none", () => {
+    // Kept from upstream: `custom` reads `.pi/agent-tool-description.md` (project,
+    // then `<agentDir>`), substitutes `{{placeholders}}`, and warns + falls back to
+    // `full` when no usable file exists — a blank description would be worse.
+    const withFile = setup({ toolDescriptionMode: "custom" }, () => {
+      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), "MY OWN DESCRIPTION\n{{agentNames}}");
+    });
+    const desc: string = withFile.get("Agent").description;
+    expect(desc).toContain("MY OWN DESCRIPTION");
+    expect(desc).not.toContain("## Usage notes");
+    // The roster still expands inside a custom file.
+    expect(desc).not.toContain("{{agentNames}}");
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const withoutFile = setup({ toolDescriptionMode: "custom" });
+      expect(withoutFile.get("Agent").description).toContain("## Usage notes");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('toolDescriptionMode is "custom"'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("substitutes every placeholder a custom file may carry", () => {
+    const tools = setup({ toolDescriptionMode: "custom" }, () => {
+      writeFileSync(
+        join(tmpDir, ".pi", "agent-tool-description.md"),
+        "A {{agentNames}} B {{typeList}} C {{compactTypeList}} D {{agentDir}} E {{scheduleGuideline}} F {{isolationGuideline}} G",
+      );
+    });
+    const desc: string = tools.get("Agent").description;
+    expect(desc).not.toContain("{{");
+    expect(desc).not.toContain("}}");
+  });
+
+  it("the shipped example template renders byte-identical to the full description", async () => {
+    // Guards examples/agent-tool-description.md against going stale: it must
+    // reproduce the full description exactly. If you edit one, edit the other.
+    const example = readFileSync(EXAMPLE_TEMPLATE, "utf-8");
+    const tools = setup({ toolDescriptionMode: "custom" }, () => {
+      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), example);
+    });
+    const customDesc: string = tools.get("Agent").description;
+
+    // Second instance in the same hermetic cwd, flipped to full mode.
+    writeFileSync(join(tmpDir, ".pi", "subagents.json"), JSON.stringify({ toolDescriptionMode: "full" }));
+    const second = makePi();
+    subagentsExtension(second.pi);
+    try {
+      expect(customDesc).toBe(second.tools.get("Agent").description);
+    } finally {
+      await second.handlers.get("session_shutdown")?.({}, { hasUI: false, ui: {} } as any);
+    }
+  });
+
   it("compact keeps every load-bearing contract — fails when a behavior change forgets compact", () => {
     const tools = setup({ toolDescriptionMode: "compact" });
     const desc: string = tools.get("Agent").description;
@@ -181,110 +237,6 @@ describe("toolDescriptionMode", () => {
     for (const name of ["run_in_background", "model", "thinking", "inherit_context"]) {
       // Long enough to be an explanation the model can act on, not a bare label.
       expect(props[name]?.description?.length ?? 0).toBeGreaterThan(40);
-    }
-  });
-
-  it("custom mode renders the project template with placeholders substituted", () => {
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(
-        join(tmpDir, ".pi", "agent-tool-description.md"),
-        "My agents:\n{{typeList}}\n\nGlobal dir: {{agentDir}}\nUnknown: {{nope}}\nCost: $& stays literal",
-      );
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).toContain("My agents:");
-    expect(desc).toContain("- general-purpose:"); // {{typeList}} expanded
-    expect(desc).toContain(`Global dir: ${hermeticAgentDir}`); // {{agentDir}} expanded
-    expect(desc).toContain("Unknown: {{nope}}"); // unknown placeholder left verbatim
-    expect(desc).toContain("Cost: $& stays literal"); // no $-pattern expansion
-    expect(desc).not.toContain("## Usage notes");
-  });
-
-  it("custom mode falls back to the global file when no project file exists", () => {
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(join(hermeticAgentDir, "agent-tool-description.md"), "GLOBAL CUSTOM\n{{compactTypeList}}");
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).toContain("GLOBAL CUSTOM");
-    expect(desc).toContain("- Explore: Fast read-only search agent for locating code. (Tools:");
-  });
-
-  it("{{scheduleGuideline}} expands to the schedule bullet when scheduling is on (default)", () => {
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), "RULES:{{scheduleGuideline}}\nEND");
-    });
-    const desc: string = tools.get("Agent").description;
-    // The expansion carries its own leading "\n- " bullet.
-    expect(desc).toContain("RULES:\n- Use `schedule` only when");
-  });
-
-  it("{{scheduleGuideline}} expands to the empty string when scheduling is disabled", () => {
-    const tools = setup({ toolDescriptionMode: "custom", schedulingEnabled: false }, () => {
-      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), "RULES:{{scheduleGuideline}}\nEND");
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).toContain("RULES:\nEND");
-    expect(desc).not.toContain("schedule");
-  });
-
-  it("{{isolationGuideline}} expands to the isolation bullet when worktrees are on (default)", () => {
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), "RULES:{{isolationGuideline}}\nEND");
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).toContain('RULES:\n- Use isolation: "worktree"');
-  });
-
-  it("{{isolationGuideline}} expands to the empty string when worktree isolation is disabled", () => {
-    const tools = setup({ toolDescriptionMode: "custom", worktreeIsolation: false }, () => {
-      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), "RULES:{{isolationGuideline}}\nEND");
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).toContain("RULES:\nEND");
-    expect(desc).not.toContain("isolation");
-  });
-
-  it("every documented placeholder is replaced — no {{ }} residue", () => {
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(
-        join(tmpDir, ".pi", "agent-tool-description.md"),
-        "A {{typeList}} B {{compactTypeList}} C {{agentDir}} D {{scheduleGuideline}} E {{isolationGuideline}} F",
-      );
-    });
-    const desc: string = tools.get("Agent").description;
-    expect(desc).not.toContain("{{");
-    expect(desc).not.toContain("}}");
-  });
-
-  it("the shipped example template renders byte-identical to the full description", async () => {
-    // Guards examples/agent-tool-description.md against going stale: it must
-    // reproduce the full description exactly. If you edit one, edit the other.
-    const example = readFileSync(EXAMPLE_TEMPLATE, "utf-8");
-    const tools = setup({ toolDescriptionMode: "custom" }, () => {
-      writeFileSync(join(tmpDir, ".pi", "agent-tool-description.md"), example);
-    });
-    const customDesc: string = tools.get("Agent").description;
-
-    // Second instance in the same hermetic cwd, flipped to full mode.
-    writeFileSync(join(tmpDir, ".pi", "subagents.json"), JSON.stringify({ toolDescriptionMode: "full" }));
-    const second = makePi();
-    subagentsExtension(second.pi);
-    try {
-      expect(customDesc).toBe(second.tools.get("Agent").description);
-    } finally {
-      await second.handlers.get("session_shutdown")?.({}, { hasUI: false, ui: {} } as any);
-    }
-  });
-
-  it("custom mode without a file falls back to the full description with a warning", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const tools = setup({ toolDescriptionMode: "custom" });
-      const desc: string = tools.get("Agent").description;
-      expect(desc).toContain("## Usage notes");
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("no agent-tool-description.md found"));
-    } finally {
-      warn.mockRestore();
     }
   });
 

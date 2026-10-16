@@ -605,7 +605,7 @@ describe("settings persistence", () => {
     });
 
     it("accepts all valid toolDescriptionMode values", () => {
-      for (const mode of ["full", "compact", "custom"] as const) {
+      for (const mode of ["full", "compact"] as const) {
         writeProject({ toolDescriptionMode: mode });
         expect(loadSettings(projectDir)).toEqual({ toolDescriptionMode: mode });
       }
@@ -629,6 +629,10 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
       writeProject({ toolDescriptionMode: null });
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
+      // `custom` is still a valid value: it names a user-authored description
+      // file, so the sanitizer must keep it.
+      writeProject({ toolDescriptionMode: "custom" });
+      expect(loadSettings(projectDir).toolDescriptionMode).toBe("custom");
     });
 
     it("returns {} when the JSON root is not an object (array, string, null)", () => {

@@ -490,16 +490,22 @@ A few rules the examples don't make obvious:
 
 #### How an agent's scope is advertised
 
-The agent **catalogue** is what the orchestrator reads when deciding where to route work: one row per available agent, each with a `(Tools: …)` suffix. It is not carried in the every-turn tool description — 18 agents of rows cost ~7.5 KB per turn, rendered into the tool spec twice — so the description names the agents and the catalogue is built on demand: the [`list_agents`](#list_agents) tool returns it, and a custom tool description can interpolate it via [`{{typeList}}`](#tool-description). The suffix describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the catalogue is built:
+The agent **catalogue** is what the orchestrator reads when deciding where to route work: a two-line legend, then one row per available agent, `- <dir> <scope> <name>: <description>`, with both one-letter tags resolving against the legend. It is not carried in the every-turn tool description — a row per agent would be paid for on every turn, rendered into the tool spec twice — so the description names the agents and the catalogue is built on demand: the [`list_agents`](#list_agents) tool returns it.
 
-| `tools:` | suffix |
+```text
+dirs: 1=~/.pi/agent/agents 2=.pi/agents  (each agent's file: <dir>/<type>.md)
+scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools
+- 1 r codebase-locator: Locates files, directories, and components relevant to a feature or task.
+- 1 s claim-verifier: Adversarial finding verifier.
+- 2 s auditor: Security Code Reviewer
+```
+
+| badge | meaning |
 |---|---|
-| omitted, `*`, or `all` | `*` |
-| a list of built-ins | that list, e.g. `read, grep` |
-| `none` with `isolated: true` or `extensions: false` | `none` |
-| `none`, or only `ext:` / `mcp__` entries, with extensions loading | `no built-ins, extension tools only` |
+| `dirs` index | the directory the agent's `.md` was loaded from, numbered in the order the rows first mention it. `0` is the built-in defaults, which have no file of their own. A row whose frontmatter `name:` overrides its filename carries `(file: <filename>)` instead, since the legend's `<dir>/<type>.md` would name a path that does not exist. |
+| `scope` | `w` — can edit: holds `write`/`edit`, or never narrowed `tools:` at all, which means every built-in. `s` — shell only: holds `bash` with no editing tool, and can still change the repository through it. `r` — holds neither. `e` — zero built-ins, but extensions still surface their tools. `-` — can call nothing: `isolated: true` or `extensions: false`. |
 
-The last two rows are separate because zero built-ins is not zero tools: `tools: none` alongside `extensions:` still surfaces every extension tool, so calling it `none` would understate what the agent can do. Note `*` doesn't enumerate extension tools either — an agent with `tools: "*, ext:mcp/search"` advertises `*`.
+Scope describes **built-in scope only** — extension tools are resolved when the agent runs (extensions may register lazily, see above), so they can't be enumerated when the catalogue is built. `r` and `s` are separate for the same reason `e` and `-` are: `bash` writes files, so an agent holding it is not read-only, and zero built-ins is not zero tools — `tools: none` alongside `extensions:` still surfaces every extension tool.
 
 ### Shipping agents in a pi package
 
@@ -622,10 +628,14 @@ Send a steering message to a running agent. The message interrupts after the cur
 
 ### `list_agents`
 
-List every agent type pi can spawn, with what each one does, its model and the tool scope it runs with — the [catalogue](#how-an-agents-scope-is-advertised) the every-turn tool descriptions name but no longer carry. Takes no parameters, is registered in every `toolDescriptionMode`, and is not inherited by subagents. Returns one row per available agent:
+List every agent type pi can spawn — what each one does, which directory its definition file was loaded from, and the scope it runs with. The [catalogue](#how-an-agents-scope-is-advertised) the every-turn tool descriptions name but no longer carry. Takes no parameters, is registered in every `toolDescriptionMode`, and is not inherited by subagents. Returns a two-line legend, then one row per available agent — the three shipped defaults, which have no files of their own:
 
 ```text
-- Explore: Fast read-only search agent for locating code. (claude-haiku-4-5) (Tools: read, bash, grep, find, ls)
+dirs: 0=built-in (no file)
+scope: r=read-only, s=shell (can write via bash), w=write/edit, e=extension tools only, -=no tools
+- 0 w general-purpose: General-purpose agent for researching complex questions, searching for code,…
+- 0 s Explore: Fast read-only search agent for locating code.
+- 0 s Plan: Software architect agent for designing implementation plans.
 ```
 
 ## Commands
@@ -917,11 +927,11 @@ Launch an autonomous agent. Available types:
 Custom agents live in .pi/agents/ or {{agentDir}}/agents/.
 ```
 
-Placeholders: `{{agentNames}}` (the bare comma-separated name list the built-in descriptions carry), `{{typeList}}` (the full catalogue — what [`list_agents`](#list_agents) returns: one line per agent, with its description capped at 80 characters, its model and its `(Tools: …)` scope), `{{compactTypeList}}` (first sentence of each agent's description), `{{agentDir}}`, `{{isolationGuideline}}` and `{{scheduleGuideline}}` (each expands with its own leading newline + `- ` bullet when the matching feature is on — place them directly after your last rule line; empty when [worktree isolation](#turning-worktrees-off) / scheduling is off). Unknown placeholders are left verbatim with a stderr warning; a missing or empty file falls back to `"full"` with a warning. Note the usual trust umbrella: a project-level file shapes the orchestrator's prompt, same as project agents and extensions do.
+Placeholders: `{{agentNames}}` (the bare comma-separated name list the built-in descriptions carry), `{{typeList}}` and `{{compactTypeList}}` (both the same name list — the per-agent catalogue is no longer rendered into a description at all; it is what [`list_agents`](#list_agents) returns on demand, so a custom file that wants it should say so in prose rather than embed it), `{{agentDir}}`, `{{isolationGuideline}}` and `{{scheduleGuideline}}` (each expands with its own leading newline + `- ` bullet when the matching feature is on — place them directly after your last rule line; empty when [worktree isolation](#turning-worktrees-off) / scheduling is off). Unknown placeholders are left verbatim with a stderr warning; a missing or empty file falls back to `"full"` with a warning. Note the usual trust umbrella: a project-level file shapes the orchestrator's prompt, same as project agents and extensions do.
 
 **Starting point:** copy [`examples/agent-tool-description.md`](examples/agent-tool-description.md) — it reproduces the default full description exactly (a CI test keeps it in sync), so you can trim from a known-good baseline instead of writing from scratch.
 
-**Workflow tool exposure** (`workflowToolExposure`, default `"inline"`): where the [`SubagentWorkflow`](#subagentworkflow) script reference reaches the model. `"inline"` puts it in the tool description, so the model has it whenever it writes a script. `"skill"` saves about 4k tokens every session: the description carries one line pointing at the bundled `skills/workflow-authoring/SKILL.md` by its path in the installed package instead, and the model has to choose to read it — a model that skips it writes the script without the reference, and it needs a `read` tool. `"deferred"` keeps the tool out of the tool spec entirely until pi's `tool_search` loads it, then carries the inline reference. It needs `tool_search` active (`"defaultTools": ["+tool_search"]` in pi's settings; pi ships it off), and the model only finds the tool by searching for it, so it also cannot see the opt-in rule until then. An explicit `--tools` list must name `SubagentWorkflow` as well as `tool_search`, or pi leaves the tool out entirely (`--tools +tool_search` keeps the default set). Applies on the next pi session.
+**Workflow tool exposure** (`workflowToolExposure`, default `"skill"`): where the [`SubagentWorkflow`](#subagentworkflow) script reference reaches the model. `"skill"` — the default, and about 4k tokens lighter every session — leaves the description carrying one line pointing at the bundled `skills/workflow-authoring/SKILL.md` by its path in the installed package, and the model chooses to read it; a model that skips it writes the script without the reference, and it needs a `read` tool. `"inline"` puts the reference itself in the tool description, so the model has it whenever it writes a script, at the cost of re-sending it every turn whether or not a workflow runs. `"deferred"` keeps the tool out of the tool spec entirely until pi's `tool_search` loads it, then carries the inline reference. It needs `tool_search` active (`"defaultTools": ["+tool_search"]` in pi's settings; pi ships it off), and the model only finds the tool by searching for it, so it also cannot see the opt-in rule until then. An explicit `--tools` list must name `SubagentWorkflow` as well as `tool_search`, or pi leaves the tool out entirely (`--tools +tool_search` keeps the default set). Applies on the next pi session.
 
 **Example — global defaults for a beefy machine:**
 
@@ -1264,7 +1274,6 @@ skills/
   workflow-authoring/ # SKILL.md: the SubagentWorkflow script reference, pointed at by the tool description
 examples/
   workflows/          # Runnable examples, executed by test/workflow-examples.test.ts
-  agent-tool-description.md
 skills/
   workflow-authoring/         # Packaged skill: the SubagentWorkflow authoring reference
   writing-subagents/           # Packaged skill: the agent definition file reference

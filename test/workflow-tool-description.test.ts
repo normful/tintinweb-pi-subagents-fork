@@ -2,11 +2,11 @@
  * workflow-tool-description.test.ts — the model reads this text on every turn,
  * and nothing else checks it.
  *
- * `tool-description.ts` is one exported template literal, so coverage reports it
- * at 100% (1/1 statements) no matter what it says. That is exactly the shape of
- * file that drifts: the description once told the model `resume` was only
- * exclusive with `agentType`, while the runtime rejected six options, and an
- * example once combined `resume` with `gate`, which throws.
+ * `tool-description.ts` is one exported template-building function, so coverage
+ * reports it at 100% (1/1 statements) no matter what it says. That is exactly
+ * the shape of file that drifts: the description once told the model `resume`
+ * was only exclusive with `agentType`, while the runtime rejected six options,
+ * and an example once combined `resume` with `gate`, which throws.
  *
  * So the assertions here derive their expectations from `worker-source.ts`
  * rather than restating them: the option set, the exclusions and the effort
@@ -28,16 +28,19 @@ import { fullWorkflowToolDescription } from "../src/workflow/tool-description.js
 const SKILL_FILE = fileURLToPath(new URL("../skills/workflow-authoring/SKILL.md", import.meta.url));
 
 /**
- * What the model ends up reading: the tool description plus the authoring
- * skill it points at. The contract holds for the pair, wherever a sentence
- * lives.
+ * What the model ends up reading: the tool description plus the authoring skill
+ * it points at. The contract holds for the pair, wherever a sentence lives — the
+ * default `workflowToolExposure` is `"skill"`, so most sessions read both.
  */
-/** A stand-in roster: the description names the types it can pass to `agentType`. */
-const ROSTER_NAMES = "Explore, general-purpose, Plan";
+/**
+ * A fixed roster, so an assertion about the injected names is about injection
+ * and nothing else.
+ */
+const AGENT_NAMES = "alpha-locator, beta-verifier";
 
 const description = existsSync(SKILL_FILE)
-  ? `${fullWorkflowToolDescription(ROSTER_NAMES)}\n\n${readFileSync(SKILL_FILE, "utf8")}`
-  : fullWorkflowToolDescription(ROSTER_NAMES);
+  ? `${fullWorkflowToolDescription(AGENT_NAMES)}\n\n${readFileSync(SKILL_FILE, "utf8")}`
+  : fullWorkflowToolDescription(AGENT_NAMES);
 const workerSource = readFileSync(
   fileURLToPath(new URL("../src/workflow/worker-source.ts", import.meta.url)),
   "utf8",
@@ -192,19 +195,19 @@ describe("claims about pi's own surfaces", () => {
 
 describe("rendering", () => {
   // The tool description alone: it is the only part that is templated.
-  it("keeps the placeholder the live agent roster is substituted into", () => {
-    // The roster is interpolated as an argument at registration, not carried as a
-    // `{{placeholder}}`: it is the bare name list, not the catalogue, because this
-    // description is re-sent on every turn whether or not a workflow runs.
-    expect(fullWorkflowToolDescription(ROSTER_NAMES)).toContain(ROSTER_NAMES);
+  it("substitutes the live agent roster into the agentType bullet", () => {
+    // The bare name list, not the catalogue: this description is re-sent on every
+    // turn whether or not a workflow runs, and the catalogue is rendered on
+    // demand instead.
+    expect(fullWorkflowToolDescription(AGENT_NAMES)).toContain(AGENT_NAMES);
     expect(description).not.toContain("{{");
   });
 
   it("leaves no unescaped template interpolation from the source literal", () => {
     // A bare `${...}` in the .ts literal would interpolate at module load and
     // reach the model as a value (or throw), not as the example text.
-    expect(fullWorkflowToolDescription(ROSTER_NAMES)).not.toContain("[object Object]");
+    expect(fullWorkflowToolDescription(AGENT_NAMES)).not.toContain("[object Object]");
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal placeholder is the subject under test
-    expect(fullWorkflowToolDescription(ROSTER_NAMES)).toContain("${f.title}");
+    expect(fullWorkflowToolDescription(AGENT_NAMES)).toContain("${f.title}");
   });
 });
