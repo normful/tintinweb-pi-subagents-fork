@@ -1,6 +1,6 @@
 ---
 name: writing-subagent-workflows
-description: "Use when authoring or editing a SubagentWorkflow script — pi-subagents' JS orchestration DSL: meta, agent() options, pipeline/parallel, caps, resume. Not the `workflow` tool's DSL."
+description: "Use when authoring or editing a SubagentWorkflow script — the JS orchestration DSL the SubagentWorkflow tool runs: meta, agent() options, pipeline/parallel, gates, caps, resume. Not the `workflow` tool's DSL, and not subagent definition files: read `writing-subagents` when the next call is the Agent tool, or when a script's `agentType` names a type you must create or edit — read both then."
 ---
 
 # SubagentWorkflow Script Authoring Reference
