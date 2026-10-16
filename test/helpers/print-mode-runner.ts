@@ -478,7 +478,19 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
             // prompt() resolves (not rejects) on abort, so after a timeout this
             // orphaned race arm keeps running — never re-prompt a torn-down session.
             if (failed) break;
-            await session.prompt("Background agents have completed. Process their results.");
+            // Best-effort nudge. The extension delivers a completion notification
+            // by starting a parent turn of its own, so the session may already be
+            // processing by the time we get here — which is the very thing this
+            // nudge exists to cause. Racing it is not an error, and under a live
+            // model the race is lost reliably enough to fail this test on a
+            // healthy tree. Waiting does not help: both `session.waitForIdle()`
+            // and `session.agent.waitForIdle()` return, and the inner agent can
+            // still be mid-prompt a microtask later (a TOCTOU, not a slow settle).
+            try {
+              await session.prompt("Background agents have completed. Process their results.");
+            } catch (err) {
+              if (!/already processing/i.test(String((err as Error)?.message ?? err))) throw err;
+            }
           }
         }
       })(),
